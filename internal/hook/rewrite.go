@@ -18,14 +18,24 @@ var (
 )
 
 func rewriteCommand(command, cwd, shell string) rewriteResult {
-	project := detectProject(cwd)
+	return rewriteCommandWithOptions(rewriteOptions{
+		command: command,
+		cwd:     cwd,
+		shell:   shell,
+	})
+}
+
+func rewriteCommandWithOptions(opts rewriteOptions) rewriteResult {
+	useHookCache := shouldUseHookCache(opts.target, opts.cacheMode)
+	command := opts.command
+	project := detectProject(opts.cwd)
 	parts := splitShell(command)
 	var changed bool
 	var reasons []string
 	var rewritten strings.Builder
 	for _, part := range parts {
 		if part.kind == shellPartCommand {
-			newText, reason := rewriteSimpleCommand(part.text, project, shell)
+			newText, reason := rewriteSimpleCommand(part.text, project, opts.shell, useHookCache)
 			rewritten.WriteString(newText)
 			if reason != "" {
 				changed = true
@@ -51,7 +61,7 @@ func rewriteCommand(command, cwd, shell string) rewriteResult {
 	}
 }
 
-func rewriteSimpleCommand(segment string, project projectDetection, shell string) (string, string) {
+func rewriteSimpleCommand(segment string, project projectDetection, shell string, useHookCache bool) (string, string) {
 	leadingLen := len(segment) - len(strings.TrimLeftFunc(segment, unicode.IsSpace))
 	trailingLen := len(segment) - len(strings.TrimRightFunc(segment, unicode.IsSpace))
 	leading := segment[:leadingLen]
@@ -72,7 +82,7 @@ func rewriteSimpleCommand(segment string, project projectDetection, shell string
 	if canonical == "uv" || canonical == "uvx" {
 		return segment, ""
 	}
-	uv := uvShellPrefix(shell)
+	uv := uvShellPrefix(shell, useHookCache)
 	if contains(interpreterCommands, canonical) {
 		args := splitArgs(rest)
 		if venvArgs, ok := interpreterVenvArgs(args); ok {
@@ -109,8 +119,12 @@ func rewriteSimpleCommand(segment string, project projectDetection, shell string
 	return segment, ""
 }
 
-func uvShellPrefix(shell string) string {
-	return commandToShellText([]string{"uv", "--cache-dir", commandCacheDir()}, shell)
+func uvShellPrefix(shell string, useHookCache bool) string {
+	argv := []string{"uv"}
+	if useHookCache {
+		argv = append(argv, "--cache-dir", commandCacheDir())
+	}
+	return commandToShellText(argv, shell)
 }
 
 func commandToShellText(argv []string, shell string) string {

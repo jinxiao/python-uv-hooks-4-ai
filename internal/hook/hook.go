@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	uvCacheEnv   = "UV_CACHE_DIR"
-	hookCacheEnv = "UV_PYTHON_AGENT_HOOKS_CACHE_DIR"
+	uvCacheEnv       = "UV_CACHE_DIR"
+	hookCacheEnv     = "UV_PYTHON_AGENT_HOOKS_CACHE_DIR"
+	hookCacheModeEnv = "UV_PYTHON_AGENT_HOOKS_CACHE_MODE"
 )
 
 type projectDetection struct {
@@ -37,6 +38,14 @@ type rewriteResult struct {
 type installer struct {
 	scope string
 	cwd   string
+}
+
+type rewriteOptions struct {
+	cwd       string
+	shell     string
+	command   string
+	target    string
+	cacheMode string
 }
 
 func Run(args []string) int {
@@ -66,20 +75,26 @@ func Run(args []string) int {
 		printJSON(detectProject(cwd))
 		return 0
 	case "rewrite-command":
-		cwd, shell, command := parseRewriteArgs(args[1:])
-		if command == "" {
+		opts := parseRewriteArgs(args[1:])
+		if opts.command == "" {
 			payload := readJSONStdin()
 			if value, ok := payload["command"].(string); ok {
-				command = value
+				opts.command = value
 			}
-			if value, ok := payload["cwd"].(string); ok && cwd == "" {
-				cwd = value
+			if value, ok := payload["cwd"].(string); ok && opts.cwd == "" {
+				opts.cwd = value
 			}
-			if value, ok := payload["shell"].(string); ok && shell == "" {
-				shell = value
+			if value, ok := payload["shell"].(string); ok && opts.shell == "" {
+				opts.shell = value
+			}
+			if value, ok := payload["target"].(string); ok && opts.target == "" {
+				opts.target = value
+			}
+			if value, ok := payload["cache_mode"].(string); ok && opts.cacheMode == "" {
+				opts.cacheMode = value
 			}
 		}
-		printJSON(rewriteCommand(command, cwd, shell))
+		printJSON(rewriteCommandWithOptions(opts))
 		return 0
 	case "codex-pretool":
 		cwd := parseValueFlag(args[1:], "--cwd")
@@ -132,20 +147,30 @@ func parseValueFlag(args []string, name string) string {
 	return ""
 }
 
-func parseRewriteArgs(args []string) (string, string, string) {
-	var cwd, shell string
+func parseRewriteArgs(args []string) rewriteOptions {
+	var opts rewriteOptions
 	var commandParts []string
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--cwd":
 			if i+1 < len(args) {
 				i++
-				cwd = args[i]
+				opts.cwd = args[i]
 			}
 		case "--shell":
 			if i+1 < len(args) {
 				i++
-				shell = args[i]
+				opts.shell = args[i]
+			}
+		case "--target":
+			if i+1 < len(args) {
+				i++
+				opts.target = args[i]
+			}
+		case "--cache-mode":
+			if i+1 < len(args) {
+				i++
+				opts.cacheMode = args[i]
 			}
 		case "--":
 			commandParts = append(commandParts, args[i+1:]...)
@@ -154,7 +179,8 @@ func parseRewriteArgs(args []string) (string, string, string) {
 			commandParts = append(commandParts, args[i])
 		}
 	}
-	return cwd, shell, stripWrappingQuote(strings.Join(commandParts, " "))
+	opts.command = stripWrappingQuote(strings.Join(commandParts, " "))
+	return opts
 }
 
 func splitTargets(text string) []string {
@@ -197,6 +223,19 @@ func commandCacheDir() string {
 		return configured
 	}
 	return defaultUVCacheDir()
+}
+
+func shouldUseHookCache(target, cacheMode string) bool {
+	if cacheMode == "" {
+		cacheMode = os.Getenv(hookCacheModeEnv)
+	}
+	switch strings.ToLower(strings.TrimSpace(cacheMode)) {
+	case "1", "true", "yes", "on", "force", "forced":
+		return true
+	case "0", "false", "no", "off", "disabled", "disable":
+		return false
+	}
+	return strings.ToLower(strings.TrimSpace(target)) != "opencode"
 }
 
 func cacheEnv() []string {
@@ -280,7 +319,11 @@ func codexPretool(cwd string) int {
 			cwd = value
 		}
 	}
-	result := rewriteCommand(command, cwd, "")
+	result := rewriteCommandWithOptions(rewriteOptions{
+		command: command,
+		cwd:     cwd,
+		target:  "codex",
+	})
 	if !result.Changed {
 		return 0
 	}

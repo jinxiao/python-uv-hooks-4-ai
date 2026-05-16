@@ -24,6 +24,29 @@ func TestRewritePythonScriptUsesUVRunPython(t *testing.T) {
 	}
 }
 
+func TestRewriteOpenCodeDefaultDoesNotForceUVCache(t *testing.T) {
+	result := rewriteCommandWithOptions(rewriteOptions{
+		command: "python app.py",
+		target:  "opencode",
+	})
+	want := "uv run python app.py"
+	if result.Command != want {
+		t.Fatalf("command = %q, want %q", result.Command, want)
+	}
+}
+
+func TestRewriteOpenCodeCanForceUVCache(t *testing.T) {
+	result := rewriteCommandWithOptions(rewriteOptions{
+		command:   "python app.py",
+		target:    "opencode",
+		cacheMode: "on",
+	})
+	want := uvPrefix() + " run python app.py"
+	if result.Command != want {
+		t.Fatalf("command = %q, want %q", result.Command, want)
+	}
+}
+
 func TestRewritePipInstallPackageUsesUVPip(t *testing.T) {
 	result := rewriteCommand("pip install requests", "", "")
 	want := uvPrefix() + " pip install requests"

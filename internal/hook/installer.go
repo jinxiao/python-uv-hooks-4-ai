@@ -170,19 +170,22 @@ export const UvPythonAgentHooks = async () => {
       const payload = JSON.stringify({
         command: output.args.command,
         cwd: input.cwd || process.cwd(),
+        target: "opencode",
       })
       const cwd = input.cwd || process.cwd()
-      const cacheDir = process.env.UV_PYTHON_AGENT_HOOKS_CACHE_DIR || path.join(os.tmpdir(), "uv-python-agent-hooks", "uv-cache")
-      fs.mkdirSync(cacheDir, { recursive: true })
-      const result = spawnSync(runner, ["rewrite-command"], {
+      const env = { ...process.env }
+      const cacheMode = (env.UV_PYTHON_AGENT_HOOKS_CACHE_MODE || "auto").toLowerCase()
+      if (["1", "true", "yes", "on", "force", "forced"].includes(cacheMode)) {
+        const cacheDir = env.UV_PYTHON_AGENT_HOOKS_CACHE_DIR || path.join(os.tmpdir(), "uv-python-agent-hooks", "uv-cache")
+        fs.mkdirSync(cacheDir, { recursive: true })
+        env.UV_CACHE_DIR = cacheDir
+        env.UV_PYTHON_AGENT_HOOKS_CACHE_DIR = cacheDir
+      }
+      const result = spawnSync(runner, ["rewrite-command", "--target", "opencode"], {
         input: payload,
         cwd,
         encoding: "utf8",
-        env: {
-          ...process.env,
-          UV_CACHE_DIR: cacheDir,
-          UV_PYTHON_AGENT_HOOKS_CACHE_DIR: cacheDir,
-        },
+        env,
         windowsHide: true,
       })
       if (result.status !== 0 || !result.stdout) {

@@ -77,6 +77,7 @@ You can also test a rewrite without installing hooks:
 
 ```powershell
 uv-python-hook rewrite-command "python app.py"
+uv-python-hook rewrite-command --target opencode "python app.py"
 uv-python-hook rewrite-command "pip install -r requirements.txt"
 uv-python-hook detect-project
 ```
@@ -143,12 +144,46 @@ For a project-local install:
 uv-python-hook uninstall --project --targets codex
 ```
 
+## Usage With OpenCode
+
+Install the OpenCode plugin:
+
+```powershell
+uv-python-hook install --user --targets opencode
+```
+
+For sandboxed OpenCode environments, prefer a project-local install so the
+plugin is available from the working directory:
+
+```powershell
+uv-python-hook install --project --targets opencode
+```
+
+OpenCode rewrites Python-related commands directly. Unlike the Codex target, it
+does not force `uv` to use the hook's temporary cache by default:
+
+- `python app.py` -> `uv run python app.py`
+- `pytest -q` -> `uv run pytest -q`
+- `pip install requests` -> `uv pip install requests`
+
+Set `UV_PYTHON_AGENT_HOOKS_CACHE_MODE=on` to force the same temporary cache mode
+used by Codex.
+
 ## Cache Directory
 
-Hooks force `UV_CACHE_DIR` to a dedicated temporary cache:
+Codex hooks force `UV_CACHE_DIR` to a dedicated temporary cache by default:
 
 ```text
 %TEMP%\uv-python-agent-hooks\uv-cache
+```
+
+OpenCode hooks leave `uv` cache behavior unchanged by default. Control this
+with:
+
+```powershell
+$env:UV_PYTHON_AGENT_HOOKS_CACHE_MODE = "auto" # codex on, opencode off
+$env:UV_PYTHON_AGENT_HOOKS_CACHE_MODE = "on"   # force temp cache
+$env:UV_PYTHON_AGENT_HOOKS_CACHE_MODE = "off"  # never force temp cache
 ```
 
 Override it with:
@@ -165,4 +200,5 @@ uv-python-hook uninstall --user --targets codex
 uv-python-hook doctor
 uv-python-hook detect-project
 uv-python-hook rewrite-command "pip install -r requirements.txt"
+uv-python-hook rewrite-command --target opencode "python app.py"
 ```
