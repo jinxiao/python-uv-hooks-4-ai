@@ -1,0 +1,424 @@
+package hook
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+)
+
+const (
+	uvCacheEnv   = "UV_CACHE_DIR"
+	hookCacheEnv = "UV_PYTHON_AGENT_HOOKS_CACHE_DIR"
+)
+
+type projectDetection struct {
+	CWD        string   `json:"cwd"`
+	Pyproject  *string  `json:"pyproject"`
+	Root       *string  `json:"root"`
+	Syncable   bool     `json:"syncable"`
+	Reasons    []string `json:"reasons"`
+	Issues     []string `json:"issues"`
+	Suggestion *string  `json:"suggestion"`
+}
+
+type rewriteResult struct {
+	Original string           `json:"original"`
+	Command  string           `json:"command"`
+	Changed  bool             `json:"changed"`
+	Reason   *string          `json:"reason"`
+	Project  projectDetection `json:"project"`
+}
+
+type installer struct {
+	scope string
+	cwd   string
+}
+
+func Run(args []string) int {
+	if len(args) == 0 {
+		printUsage()
+		return 2
+	}
+
+	switch args[0] {
+	case "install":
+		opts := parseInstallArgs(args[1:])
+		printJSON(newInstaller(opts.scope, opts.cwd).install(splitTargets(opts.targets)))
+		return 0
+	case "uninstall":
+		opts := parseInstallArgs(args[1:])
+		printJSON(newInstaller(opts.scope, opts.cwd).uninstall(splitTargets(opts.targets)))
+		return 0
+	case "doctor":
+		cwd := parseValueFlag(args[1:], "--cwd")
+		printJSON(doctor(cwd))
+		if _, err := exec.LookPath("uv"); err != nil {
+			return 1
+		}
+		return 0
+	case "detect-project":
+		cwd := parseValueFlag(args[1:], "--cwd")
+		printJSON(detectProject(cwd))
+		return 0
+	case "rewrite-command":
+		cwd, shell, command := parseRewriteArgs(args[1:])
+		if command == "" {
+			payload := readJSONStdin()
+			if value, ok := payload["command"].(string); ok {
+				command = value
+			}
+			if value, ok := payload["cwd"].(string); ok && cwd == "" {
+				cwd = value
+			}
+			if value, ok := payload["shell"].(string); ok && shell == "" {
+				shell = value
+			}
+		}
+		printJSON(rewriteCommand(command, cwd, shell))
+		return 0
+	case "codex-pretool":
+		cwd := parseValueFlag(args[1:], "--cwd")
+		return codexPretool(cwd)
+	default:
+		printUsage()
+		return 2
+	}
+}
+
+func printUsage() {
+	_, _ = fmt.Fprintln(os.Stderr, "usage: uv-python-hook <install|uninstall|doctor|detect-project|rewrite-command|codex-pretool>")
+}
+
+type installOptions struct {
+	scope   string
+	targets string
+	cwd     string
+}
+
+func parseInstallArgs(args []string) installOptions {
+	opts := installOptions{scope: "user", targets: "codex,opencode"}
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--user":
+			opts.scope = "user"
+		case "--project":
+			opts.scope = "project"
+		case "--targets":
+			if i+1 < len(args) {
+				i++
+				opts.targets = args[i]
+			}
+		case "--cwd":
+			if i+1 < len(args) {
+				i++
+				opts.cwd = args[i]
+			}
+		}
+	}
+	return opts
+}
+
+func parseValueFlag(args []string, name string) string {
+	for i := 0; i < len(args); i++ {
+		if args[i] == name && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
+}
+
+func parseRewriteArgs(args []string) (string, string, string) {
+	var cwd, shell string
+	var commandParts []string
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--cwd":
+			if i+1 < len(args) {
+				i++
+				cwd = args[i]
+			}
+		case "--shell":
+			if i+1 < len(args) {
+				i++
+				shell = args[i]
+			}
+		case "--":
+			commandParts = append(commandParts, args[i+1:]...)
+			i = len(args)
+		default:
+			commandParts = append(commandParts, args[i])
+		}
+	}
+	return cwd, shell, stripWrappingQuote(strings.Join(commandParts, " "))
+}
+
+func splitTargets(text string) []string {
+	var targets []string
+	for _, item := range strings.Split(text, ",") {
+		item = strings.TrimSpace(item)
+		if item != "" {
+			targets = append(targets, item)
+		}
+	}
+	return targets
+}
+
+func readJSONStdin() map[string]any {
+	var payload map[string]any
+	if err := json.NewDecoder(os.Stdin).Decode(&payload); err != nil {
+		return map[string]any{}
+	}
+	return payload
+}
+
+func printJSON(value any) {
+	encoded, _ := json.MarshalIndent(value, "", "  ")
+	fmt.Println(string(encoded))
+}
+
+func stripWrappingQuote(text string) string {
+	if len(text) >= 2 && text[0] == text[len(text)-1] && (text[0] == '\'' || text[0] == '"') {
+		return text[1 : len(text)-1]
+	}
+	return text
+}
+
+func defaultUVCacheDir() string {
+	return filepath.Join(os.TempDir(), "uv-python-agent-hooks", "uv-cache")
+}
+
+func commandCacheDir() string {
+	if configured := os.Getenv(hookCacheEnv); configured != "" {
+		return configured
+	}
+	return defaultUVCacheDir()
+}
+
+func cacheEnv() []string {
+	env := os.Environ()
+	cacheDir := os.Getenv(hookCacheEnv)
+	if cacheDir == "" {
+		cacheDir = defaultUVCacheDir()
+		env = append(env, hookCacheEnv+"="+cacheDir)
+	}
+	env = appendWithoutEnv(env, uvCacheEnv)
+	env = append(env, uvCacheEnv+"="+cacheDir)
+	_ = os.MkdirAll(cacheDir, 0o755)
+	return env
+}
+
+func appendWithoutEnv(env []string, key string) []string {
+	prefix := key + "="
+	var out []string
+	for _, item := range env {
+		if !strings.HasPrefix(item, prefix) {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func doctor(cwd string) map[string]any {
+	env := cacheEnv()
+	uvPythonPath := commandOutput(env, "uv", "python", "find")
+	return map[string]any{
+		"uv": map[string]any{
+			"path":    which("uv"),
+			"version": commandOutput(env, "uv", "--version"),
+		},
+		"python": map[string]any{
+			"path":    which("python"),
+			"version": commandOutput(nil, "python", "--version"),
+		},
+		"uv_python": map[string]any{
+			"path":      uvPythonPath,
+			"available": uvPythonPath != nil,
+		},
+		"codex":           which("codex"),
+		"opencode":        which("opencode"),
+		"project":         detectProject(cwd),
+		"user_install":    newInstaller("user", cwd).installState(),
+		"project_install": newInstaller("project", cwd).installState(),
+	}
+}
+
+func which(name string) *string {
+	path, err := exec.LookPath(name)
+	if err != nil {
+		return nil
+	}
+	return &path
+}
+
+func commandOutput(env []string, name string, args ...string) *string {
+	cmd := exec.Command(name, args...)
+	if env != nil {
+		cmd.Env = env
+	}
+	output, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+	text := strings.TrimSpace(string(output))
+	return &text
+}
+
+func codexPretool(cwd string) int {
+	payload := readJSONStdin()
+	toolInput, _ := payload["tool_input"].(map[string]any)
+	command, _ := toolInput["command"].(string)
+	if command == "" {
+		return 0
+	}
+	if cwd == "" {
+		if value, ok := payload["cwd"].(string); ok {
+			cwd = value
+		}
+	}
+	result := rewriteCommand(command, cwd, "")
+	if !result.Changed {
+		return 0
+	}
+	eventName, _ := payload["hook_event_name"].(string)
+	if eventName == "" {
+		eventName = "PreToolUse"
+	}
+	message := "Python-related command must run through uv. Use: " + result.Command
+	if eventName == "PermissionRequest" {
+		printJSON(map[string]any{
+			"hookSpecificOutput": map[string]any{
+				"hookEventName": "PermissionRequest",
+				"decision": map[string]any{
+					"behavior": "deny",
+					"message":  message,
+				},
+			},
+		})
+		return 0
+	}
+	printJSON(map[string]any{
+		"hookSpecificOutput": map[string]any{
+			"hookEventName":            "PreToolUse",
+			"permissionDecision":       "deny",
+			"permissionDecisionReason": message,
+		},
+	})
+	return 0
+}
+
+func cleanPath(path string) string {
+	if path == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return "."
+		}
+		path = cwd
+	}
+	if stat, err := os.Stat(path); err == nil && !stat.IsDir() {
+		path = filepath.Dir(path)
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		path = real
+	}
+	return path
+}
+
+func isWindowsShell(shell string) bool {
+	if shell != "" {
+		lowered := strings.ToLower(shell)
+		return strings.Contains(lowered, "powershell") || strings.HasSuffix(lowered, "cmd") || strings.Contains(lowered, "cmd.exe")
+	}
+	return runtime.GOOS == "windows"
+}
+
+func stringPtr(value string) *string {
+	return &value
+}
+
+func contains(items []string, value string) bool {
+	for _, item := range items {
+		if item == value {
+			return true
+		}
+	}
+	return false
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func ensureParent(path string) {
+	_ = os.MkdirAll(filepath.Dir(path), 0o755)
+}
+
+func readJSONFile(path string) (map[string]any, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return nil, err
+	}
+	return payload, nil
+}
+
+func writeJSONFile(path string, payload any) {
+	ensureParent(path)
+	data, _ := json.MarshalIndent(payload, "", "  ")
+	data = append(data, '\n')
+	_ = os.WriteFile(path, data, 0o644)
+}
+
+func homeDir() string {
+	if home, err := os.UserHomeDir(); err == nil {
+		return home
+	}
+	return "."
+}
+
+func backupInvalidJSON(path string) {
+	backup := path + ".bak"
+	if fileExists(path) && !fileExists(backup) {
+		_ = copyFile(path, backup)
+	}
+}
+
+func copyFile(src, dst string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, data, 0o644)
+}
+
+func asMap(value any) map[string]any {
+	m, _ := value.(map[string]any)
+	return m
+}
+
+func asSlice(value any) []any {
+	s, _ := value.([]any)
+	return s
+}
+
+func commandError(err error) string {
+	if err == nil {
+		return ""
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return strings.TrimSpace(string(exitErr.Stderr))
+	}
+	return err.Error()
+}
