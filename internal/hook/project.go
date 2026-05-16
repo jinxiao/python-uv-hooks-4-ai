@@ -16,14 +16,25 @@ type pyprojectInfo struct {
 	DependencyGroups     bool
 	ToolUVDevDeps        bool
 	ToolUVSources        bool
+	ToolPoetry           bool
+	ToolPDM              bool
 	ProjectSectionBroken bool
 }
 
 func detectProject(cwd string) projectDetection {
 	start := cleanPath(cwd)
 	for dir := start; ; dir = filepath.Dir(dir) {
+		if fileExists(filepath.Join(dir, "poetry.lock")) {
+			return externalProject(start, dir, "poetry")
+		}
+		if fileExists(filepath.Join(dir, "pdm.lock")) {
+			return externalProject(start, dir, "pdm")
+		}
 		pyproject := filepath.Join(dir, "pyproject.toml")
 		if fileExists(pyproject) {
+			if manager := externalManagerFromPyproject(pyproject); manager != "" {
+				return externalProjectWithPyproject(start, dir, stringPtr(pyproject), manager)
+			}
 			reasons := uvSyncableReasons(pyproject)
 			issues := projectIssues(pyproject)
 			if len(issues) > 0 {
@@ -36,11 +47,25 @@ func detectProject(cwd string) projectDetection {
 			return projectDetection{
 				CWD:        start,
 				Pyproject:  stringPtr(pyproject),
+				UVLock:     optionalFile(filepath.Join(dir, "uv.lock")),
 				Root:       stringPtr(dir),
+				Manager:    "uv",
 				Syncable:   len(reasons) > 0,
 				Reasons:    reasons,
 				Issues:     issues,
 				Suggestion: suggestion,
+			}
+		}
+		uvLock := filepath.Join(dir, "uv.lock")
+		if fileExists(uvLock) {
+			return projectDetection{
+				CWD:      start,
+				UVLock:   stringPtr(uvLock),
+				Root:     stringPtr(dir),
+				Manager:  "uv",
+				Syncable: true,
+				Reasons:  []string{"uv.lock"},
+				Issues:   []string{},
 			}
 		}
 		parent := filepath.Dir(dir)
@@ -53,6 +78,45 @@ func detectProject(cwd string) projectDetection {
 		Reasons: []string{},
 		Issues:  []string{},
 	}
+}
+
+func externalProject(start, dir, manager string) projectDetection {
+	return externalProjectWithPyproject(start, dir, optionalFile(filepath.Join(dir, "pyproject.toml")), manager)
+}
+
+func externalProjectWithPyproject(start, dir string, pyproject *string, manager string) projectDetection {
+	suggestion := "This project appears to be managed by " + manager + "; uv command rewriting is disabled for this project."
+	return projectDetection{
+		CWD:        start,
+		Pyproject:  pyproject,
+		Root:       stringPtr(dir),
+		Manager:    manager,
+		Syncable:   false,
+		Reasons:    []string{manager},
+		Issues:     []string{},
+		Suggestion: stringPtr(suggestion),
+	}
+}
+
+func externalManagerFromPyproject(pyproject string) string {
+	info, err := parsePyproject(pyproject)
+	if err != nil {
+		return ""
+	}
+	if info.ToolPoetry {
+		return "poetry"
+	}
+	if info.ToolPDM {
+		return "pdm"
+	}
+	return ""
+}
+
+func optionalFile(path string) *string {
+	if fileExists(path) {
+		return stringPtr(path)
+	}
+	return nil
 }
 
 func uvSyncableReasons(pyproject string) []string {
@@ -127,6 +191,12 @@ func parsePyproject(path string) (pyprojectInfo, error) {
 		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
 			section = strings.Trim(line, "[]")
 			info.Sections[section] = true
+			if section == "tool.poetry" || strings.HasPrefix(section, "tool.poetry.") {
+				info.ToolPoetry = true
+			}
+			if section == "tool.pdm" || strings.HasPrefix(section, "tool.pdm.") {
+				info.ToolPDM = true
+			}
 			continue
 		}
 		key, value, ok := strings.Cut(line, "=")
@@ -157,6 +227,12 @@ func parsePyproject(path string) (pyprojectInfo, error) {
 				info.ToolUVSources = tomlValueNonEmpty(value)
 			}
 		default:
+			if section == "tool.poetry" || strings.HasPrefix(section, "tool.poetry.") {
+				info.ToolPoetry = true
+			}
+			if section == "tool.pdm" || strings.HasPrefix(section, "tool.pdm.") {
+				info.ToolPDM = true
+			}
 			if section == "dependency-groups" || strings.HasPrefix(section, "dependency-groups.") {
 				if tomlValueNonEmpty(value) {
 					info.DependencyGroups = true

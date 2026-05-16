@@ -13,12 +13,16 @@ func uvPrefix() string {
 	return commandToShellText([]string{"uv", "--cache-dir", defaultUVCacheDir()}, "")
 }
 
+func uvToolRunPrefixForTest() string {
+	return commandToShellText([]string{"uv", "--cache-dir", defaultUVCacheDir(), "tool", "run"}, "")
+}
+
 func TestRewritePythonScriptUsesUVRunPython(t *testing.T) {
 	result := rewriteCommand("python app.py", "", "")
 	if !result.Changed {
 		t.Fatal("expected rewrite to change command")
 	}
-	want := uvPrefix() + " run python app.py"
+	want := uvPrefix() + " run app.py"
 	if result.Command != want {
 		t.Fatalf("command = %q, want %q", result.Command, want)
 	}
@@ -29,7 +33,7 @@ func TestRewriteOpenCodeDefaultDoesNotForceUVCache(t *testing.T) {
 		command: "python app.py",
 		target:  "opencode",
 	})
-	want := "uv run python app.py"
+	want := "uv run app.py"
 	if result.Command != want {
 		t.Fatalf("command = %q, want %q", result.Command, want)
 	}
@@ -41,7 +45,7 @@ func TestRewriteOpenCodeCanForceUVCache(t *testing.T) {
 		target:    "opencode",
 		cacheMode: "on",
 	})
-	want := uvPrefix() + " run python app.py"
+	want := uvPrefix() + " run app.py"
 	if result.Command != want {
 		t.Fatalf("command = %q, want %q", result.Command, want)
 	}
@@ -57,7 +61,7 @@ func TestRewritePipInstallPackageUsesUVPip(t *testing.T) {
 
 func TestRewriteCompoundCommand(t *testing.T) {
 	result := rewriteCommand("cd src && python app.py", "", "")
-	want := "cd src && " + uvPrefix() + " run python app.py"
+	want := "cd src && " + uvPrefix() + " run app.py"
 	if result.Command != want {
 		t.Fatalf("command = %q, want %q", result.Command, want)
 	}
@@ -79,6 +83,71 @@ func TestDetectSyncableProjectDependencies(t *testing.T) {
 	}
 	if !contains(result.Reasons, "project.dependencies") {
 		t.Fatalf("reasons = %#v", result.Reasons)
+	}
+}
+
+func TestDetectUVLockProjectWithoutPyproject(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "uv.lock"), "")
+	result := detectProject(dir)
+	if result.Manager != "uv" || !result.Syncable {
+		t.Fatalf("result = %#v", result)
+	}
+	if result.UVLock == nil {
+		t.Fatal("expected uv lock path")
+	}
+}
+
+func TestPoetryProjectIsNotRewritten(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "poetry.lock"), "")
+	result := rewriteCommand("python app.py", dir, "")
+	if result.Changed {
+		t.Fatalf("expected Poetry command to remain unchanged, got %q", result.Command)
+	}
+	if result.Project.Manager != "poetry" {
+		t.Fatalf("manager = %q", result.Project.Manager)
+	}
+}
+
+func TestPDMProjectIsNotRewritten(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "pdm.lock"), "")
+	result := rewriteCommand("pip install requests", dir, "")
+	if result.Changed {
+		t.Fatalf("expected PDM command to remain unchanged, got %q", result.Command)
+	}
+	if result.Project.Manager != "pdm" {
+		t.Fatalf("manager = %q", result.Project.Manager)
+	}
+}
+
+func TestStandaloneToolUsesUVToolRunWithCache(t *testing.T) {
+	result := rewriteCommand("ruff check .", "", "")
+	want := uvToolRunPrefixForTest() + " ruff check ."
+	if result.Command != want {
+		t.Fatalf("command = %q, want %q", result.Command, want)
+	}
+}
+
+func TestStandaloneToolUsesUVXForOpenCode(t *testing.T) {
+	result := rewriteCommandWithOptions(rewriteOptions{
+		command: "ruff check .",
+		target:  "opencode",
+	})
+	want := "uvx ruff check ."
+	if result.Command != want {
+		t.Fatalf("command = %q, want %q", result.Command, want)
+	}
+}
+
+func TestProjectToolUsesUVRun(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "pyproject.toml"), "[project]\nname = 'demo'\nversion = '0.1.0'\n")
+	result := rewriteCommand("ruff check .", dir, "")
+	want := uvPrefix() + " run ruff check ."
+	if result.Command != want {
+		t.Fatalf("command = %q, want %q", result.Command, want)
 	}
 }
 

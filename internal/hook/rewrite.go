@@ -10,7 +10,7 @@ import (
 var (
 	interpreterCommands       = []string{"python", "python3", "py"}
 	pipCommands               = []string{"pip", "pip3"}
-	pythonToolCommands        = []string{"pytest", "ruff", "mypy", "black", "isort", "coverage", "tox", "nox", "pyright", "pylint", "flake8"}
+	pythonToolCommands        = []string{"pytest", "ruff", "mypy", "black", "isort", "coverage", "tox", "nox", "pyright", "pylint", "flake8", "ty"}
 	venvCommands              = []string{"virtualenv"}
 	windowsExecutableSuffixes = []string{".exe", ".cmd", ".bat"}
 	python3Pattern            = regexp.MustCompile(`^python3(?:\.\d+)?$`)
@@ -82,6 +82,9 @@ func rewriteSimpleCommand(segment string, project projectDetection, shell string
 	if canonical == "uv" || canonical == "uvx" {
 		return segment, ""
 	}
+	if projectIsManagedByOtherTool(project) {
+		return segment, ""
+	}
 	uv := uvShellPrefix(shell, useHookCache)
 	if contains(interpreterCommands, canonical) {
 		args := splitArgs(rest)
@@ -97,6 +100,9 @@ func rewriteSimpleCommand(segment string, project projectDetection, shell string
 			}
 			return leading + uv + " pip " + commandToShellText(pipArgs, shell) + trailing, first + " -m pip -> uv pip"
 		}
+		if scriptArgs, ok := interpreterScriptArgs(args); ok {
+			return leading + uv + " run " + commandToShellText(scriptArgs, shell) + trailing, first + " script -> uv run script"
+		}
 		return leading + uv + " run python" + rest + trailing, first + " -> uv run python"
 	}
 	if contains(pipCommands, canonical) {
@@ -110,6 +116,14 @@ func rewriteSimpleCommand(segment string, project projectDetection, shell string
 		return leading + uv + " pip" + rest + trailing, first + " -> uv pip"
 	}
 	if contains(pythonToolCommands, canonical) {
+		if !projectUsesUV(project) {
+			toolRunner := uvToolRunPrefix(shell, useHookCache)
+			toolRunnerName := "uvx"
+			if useHookCache {
+				toolRunnerName = "uv tool run"
+			}
+			return leading + toolRunner + " " + canonical + rest + trailing, first + " -> " + toolRunnerName + " " + canonical
+		}
 		return leading + uv + " run " + canonical + rest + trailing, first + " -> uv run " + canonical
 	}
 	if contains(venvCommands, canonical) {
@@ -125,6 +139,13 @@ func uvShellPrefix(shell string, useHookCache bool) string {
 		argv = append(argv, "--cache-dir", commandCacheDir())
 	}
 	return commandToShellText(argv, shell)
+}
+
+func uvToolRunPrefix(shell string, useHookCache bool) string {
+	if !useHookCache {
+		return "uvx"
+	}
+	return commandToShellText([]string{"uv", "--cache-dir", commandCacheDir(), "tool", "run"}, shell)
 }
 
 func commandToShellText(argv []string, shell string) string {
@@ -321,6 +342,25 @@ func interpreterVenvArgs(args []string) ([]string, bool) {
 		return args[2:], true
 	}
 	return nil, false
+}
+
+func interpreterScriptArgs(args []string) ([]string, bool) {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return nil, false
+	}
+	lowered := strings.ToLower(strings.Trim(args[0], "\"'"))
+	if strings.HasSuffix(lowered, ".py") || strings.HasSuffix(lowered, ".pyw") {
+		return args, true
+	}
+	return nil, false
+}
+
+func projectIsManagedByOtherTool(project projectDetection) bool {
+	return project.Manager == "poetry" || project.Manager == "pdm"
+}
+
+func projectUsesUV(project projectDetection) bool {
+	return project.Manager == "uv" || project.Pyproject != nil || project.UVLock != nil
 }
 
 func venvArgsWithDefault(args []string) []string {

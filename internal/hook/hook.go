@@ -20,7 +20,9 @@ const (
 type projectDetection struct {
 	CWD        string   `json:"cwd"`
 	Pyproject  *string  `json:"pyproject"`
+	UVLock     *string  `json:"uv_lock"`
 	Root       *string  `json:"root"`
+	Manager    string   `json:"manager"`
 	Syncable   bool     `json:"syncable"`
 	Reasons    []string `json:"reasons"`
 	Issues     []string `json:"issues"`
