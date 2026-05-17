@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -259,6 +260,58 @@ func TestProjectInstallGeneratesOnlyHookFiles(t *testing.T) {
 	}
 }
 
+func TestInstallArgsDefaultToUserScopeAndAutoTargets(t *testing.T) {
+	opts := parseInstallArgs(nil)
+	if opts.scope != "user" {
+		t.Fatalf("scope = %q, want user", opts.scope)
+	}
+	if opts.targets != "" {
+		t.Fatalf("targets = %q, want empty auto target selection", opts.targets)
+	}
+}
+
+func TestAutoInstallUsesDetectedCommands(t *testing.T) {
+	withCommandAvailable(t, func(name string) bool {
+		return name == "codex"
+	})
+	dir := t.TempDir()
+	out := newInstaller("project", dir).install(nil)
+
+	if out["target_selection"] != "auto" {
+		t.Fatalf("target_selection = %#v, want auto", out["target_selection"])
+	}
+	if !reflect.DeepEqual(out["selected_targets"], []string{"codex"}) {
+		t.Fatalf("selected_targets = %#v", out["selected_targets"])
+	}
+	if !fileExists(filepath.Join(dir, ".codex", "hooks.json")) {
+		t.Fatal("missing codex hooks")
+	}
+	if fileExists(filepath.Join(dir, ".opencode", "plugins", "uv-python-agent-hooks.js")) {
+		t.Fatal("opencode plugin should not be installed when opencode is not detected")
+	}
+}
+
+func TestAutoInstallSkipsWhenNoTargetsDetected(t *testing.T) {
+	withCommandAvailable(t, func(string) bool {
+		return false
+	})
+	dir := t.TempDir()
+	out := newInstaller("project", dir).install(nil)
+
+	if !reflect.DeepEqual(out["selected_targets"], []string{}) {
+		t.Fatalf("selected_targets = %#v, want empty", out["selected_targets"])
+	}
+	if len(asMap(out["targets"])) != 0 {
+		t.Fatalf("targets = %#v, want none", out["targets"])
+	}
+	if fileExists(filepath.Join(dir, ".codex", "hooks.json")) {
+		t.Fatal("codex hooks should not be installed")
+	}
+	if fileExists(filepath.Join(dir, ".opencode", "plugins", "uv-python-agent-hooks.js")) {
+		t.Fatal("opencode plugin should not be installed")
+	}
+}
+
 func TestProjectInstallIsIdempotentForCodex(t *testing.T) {
 	dir := t.TempDir()
 	inst := newInstaller("project", dir)
@@ -275,6 +328,143 @@ func TestProjectInstallIsIdempotentForCodex(t *testing.T) {
 	hooks := asMap(payload["hooks"])
 	if len(asSlice(hooks["PreToolUse"])) != 1 || len(asSlice(hooks["PermissionRequest"])) != 1 {
 		t.Fatalf("hooks not idempotent: %s", string(data))
+	}
+}
+
+func TestProjectUninstallRemovesOnlyManagedCodexHooks(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".codex", "hooks.json")
+	ensureParent(path)
+	writeFile(t, path, `{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Shell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "existing-pretool"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "Shell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "existing-permission"
+          }
+        ]
+      }
+    ]
+  }
+}`)
+
+	inst := newInstaller("project", dir)
+	inst.install([]string{"codex"})
+	out := inst.uninstall([]string{"codex"})
+	targets := asMap(out["targets"])
+	codex := asMap(targets["codex"])
+	if codex["changed"] != true || codex["removed_hooks"] != 2 {
+		t.Fatalf("unexpected uninstall result: %#v", codex)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if strings.Contains(text, "uv-python-hook codex-pretool") {
+		t.Fatalf("managed hook was not removed: %s", text)
+	}
+	if !strings.Contains(text, "existing-pretool") || !strings.Contains(text, "existing-permission") {
+		t.Fatalf("existing hooks were not preserved: %s", text)
+	}
+}
+
+func TestProjectUninstallCodexIsNoopWhenManagedHookMissing(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".codex", "hooks.json")
+	ensureParent(path)
+	original := `{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Shell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "existing-pretool"
+          }
+        ]
+      }
+    ]
+  }
+}
+`
+	writeFile(t, path, original)
+
+	out := newInstaller("project", dir).uninstall([]string{"codex"})
+	targets := asMap(out["targets"])
+	codex := asMap(targets["codex"])
+	if codex["changed"] != false || codex["removed_hooks"] != 0 {
+		t.Fatalf("unexpected uninstall result: %#v", codex)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != original {
+		t.Fatalf("uninstall changed unrelated hooks:\n%s", string(data))
+	}
+}
+
+func TestProjectUninstallRemovesOpenCodePlugin(t *testing.T) {
+	dir := t.TempDir()
+	inst := newInstaller("project", dir)
+	inst.install([]string{"opencode"})
+	path := filepath.Join(dir, ".opencode", "plugins", "uv-python-agent-hooks.js")
+	if !fileExists(path) {
+		t.Fatal("missing opencode plugin before uninstall")
+	}
+
+	out := inst.uninstall([]string{"opencode"})
+	targets := asMap(out["targets"])
+	opencode := asMap(targets["opencode"])
+	if opencode["changed"] != true {
+		t.Fatalf("unexpected uninstall result: %#v", opencode)
+	}
+	if fileExists(path) {
+		t.Fatal("opencode plugin still exists after uninstall")
+	}
+}
+
+func TestAutoUninstallRemovesExistingHooksEvenWhenCommandsAreMissing(t *testing.T) {
+	withCommandAvailable(t, func(string) bool {
+		return false
+	})
+	dir := t.TempDir()
+	inst := newInstaller("project", dir)
+	inst.install([]string{"codex", "opencode"})
+
+	out := inst.uninstall(nil)
+	if out["target_selection"] != "auto" {
+		t.Fatalf("target_selection = %#v, want auto", out["target_selection"])
+	}
+	if !reflect.DeepEqual(out["selected_targets"], []string{"codex", "opencode"}) {
+		t.Fatalf("selected_targets = %#v", out["selected_targets"])
+	}
+	if fileExists(filepath.Join(dir, ".opencode", "plugins", "uv-python-agent-hooks.js")) {
+		t.Fatal("opencode plugin still exists after auto uninstall")
+	}
+	data, err := os.ReadFile(filepath.Join(dir, ".codex", "hooks.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "uv-python-hook codex-pretool") {
+		t.Fatalf("managed codex hook was not removed: %s", string(data))
 	}
 }
 
@@ -312,4 +502,13 @@ func writeFile(t *testing.T, path string, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func withCommandAvailable(t *testing.T, available func(string) bool) {
+	t.Helper()
+	original := commandAvailable
+	commandAvailable = available
+	t.Cleanup(func() {
+		commandAvailable = original
+	})
 }
