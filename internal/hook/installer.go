@@ -1,11 +1,15 @@
 package hook
 
 import (
+	_ "embed"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+//go:embed assets/opencode-plugin.js
+var opencodePluginSource string
 
 func newInstaller(scope, cwd string) installer {
 	if scope == "" {
@@ -108,10 +112,18 @@ func (i installer) installCodex() map[string]any {
 func (i installer) installOpenCode() map[string]any {
 	path := i.opencodePluginPath()
 	ensureParent(path)
-	_ = os.WriteFile(path, []byte(opencodePluginSource()), 0o644)
+	_ = os.WriteFile(path, []byte(opencodePluginSource), 0o644)
+	runner := which("uv-python-hook")
+	warnings := []string{}
+	if runner == nil {
+		warnings = append(warnings, "uv-python-hook is not on PATH; Opencode can load the plugin, but rewrites will not run until the runner is reachable.")
+	}
 	return map[string]any{
-		"plugin": path,
-		"mode":   "direct-rewrite",
+		"plugin":           path,
+		"mode":             "direct-rewrite",
+		"runner":           runner,
+		"runner_available": runner != nil,
+		"warnings":         warnings,
 	}
 }
 
@@ -151,52 +163,4 @@ func isOurCodexHook(text string) bool {
 	return strings.Contains(text, "uv-python-hook codex-pretool") ||
 		strings.Contains(text, "uv-python-hook-runner") ||
 		strings.Contains(text, "uv_python_agent_hooks")
-}
-
-func opencodePluginSource() string {
-	return `import { spawnSync } from "node:child_process"
-import fs from "node:fs"
-import os from "node:os"
-import path from "node:path"
-
-export const UvPythonAgentHooks = async () => {
-  const runner = "uv-python-hook"
-
-  return {
-    "tool.execute.before": async (input, output) => {
-      if (!output.args || typeof output.args.command !== "string") {
-        return
-      }
-      const payload = JSON.stringify({
-        command: output.args.command,
-        cwd: input.cwd || process.cwd(),
-        target: "opencode",
-      })
-      const cwd = input.cwd || process.cwd()
-      const env = { ...process.env }
-      const cacheMode = (env.UV_PYTHON_AGENT_HOOKS_CACHE_MODE || "auto").toLowerCase()
-      if (["1", "true", "yes", "on", "force", "forced"].includes(cacheMode)) {
-        const cacheDir = env.UV_PYTHON_AGENT_HOOKS_CACHE_DIR || path.join(os.tmpdir(), "uv-python-agent-hooks", "uv-cache")
-        fs.mkdirSync(cacheDir, { recursive: true })
-        env.UV_CACHE_DIR = cacheDir
-        env.UV_PYTHON_AGENT_HOOKS_CACHE_DIR = cacheDir
-      }
-      const result = spawnSync(runner, ["rewrite-command", "--target", "opencode"], {
-        input: payload,
-        cwd,
-        encoding: "utf8",
-        env,
-        windowsHide: true,
-      })
-      if (result.status !== 0 || !result.stdout) {
-        return
-      }
-      const parsed = JSON.parse(result.stdout)
-      if (parsed.changed && parsed.command) {
-        output.args.command = parsed.command
-      }
-    },
-  }
-}
-`
 }
