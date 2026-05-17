@@ -238,6 +238,22 @@ func TestCodexPretoolPayloadShape(t *testing.T) {
 	}
 }
 
+func TestVersionStringIncludesInjectedMetadata(t *testing.T) {
+	oldVersion, oldCommit, oldDate := Version, Commit, Date
+	t.Cleanup(func() {
+		Version, Commit, Date = oldVersion, oldCommit, oldDate
+	})
+
+	Version = "1.2.3"
+	Commit = "abc123"
+	Date = "2026-05-17T08:00:00Z"
+
+	want := "uv-python-hook 1.2.3 (commit=abc123, date=2026-05-17T08:00:00Z)"
+	if got := VersionString(); got != want {
+		t.Fatalf("VersionString() = %q, want %q", got, want)
+	}
+}
+
 func writeFile(t *testing.T, path string, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
