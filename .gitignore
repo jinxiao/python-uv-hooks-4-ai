@@ -1,6 +1,7 @@
 # Go build outputs
 /uv-python-hook
 /uv-python-hook.exe
+/dist/
 *.exe
 *.exe~
 *.dll

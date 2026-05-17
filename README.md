@@ -106,6 +106,7 @@ After building or installing, confirm the command is reachable:
 
 ```powershell
 uv-python-hook doctor
+uv-python-hook --version
 ```
 
 If you built into `.\bin`, either add that directory to `PATH` or run the binary
@@ -114,6 +115,28 @@ by path:
 ```powershell
 .\bin\uv-python-hook.exe doctor
 ```
+
+## Release
+
+Releases are automated with GoReleaser and GitHub Actions.
+
+- Pushes to `main` create a stable SemVer tag such as `v1.2.3`, then publish a
+  GitHub release.
+- Pushes to `dev` create a prerelease tag such as `v1.2.3-beta.1`, then publish
+  a GitHub prerelease.
+- Version bumps follow Conventional Commits:
+  - `feat:` increments minor.
+  - `fix:` and other changes increment patch.
+  - `BREAKING CHANGE:` or a `!` marker, such as `feat!:` increments major.
+
+GoReleaser builds Linux, Windows, and macOS binaries for `amd64` and `arm64`.
+The release build injects the release version into the binary, so:
+
+```powershell
+uv-python-hook --version
+```
+
+prints the released version and build metadata.
 
 ## Test
 

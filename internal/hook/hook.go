@@ -58,6 +58,9 @@ func Run(args []string) int {
 	}
 
 	switch args[0] {
+	case "--version", "version":
+		fmt.Println(VersionString())
+		return 0
 	case "install":
 		opts := parseInstallArgs(args[1:])
 		printJSON(newInstaller(opts.scope, opts.cwd).install(splitTargets(opts.targets)))
@@ -109,7 +112,7 @@ func Run(args []string) int {
 }
 
 func printUsage() {
-	_, _ = fmt.Fprintln(os.Stderr, "usage: uv-python-hook <install|uninstall|doctor|detect-project|rewrite-command|codex-pretool>")
+	_, _ = fmt.Fprintln(os.Stderr, "usage: uv-python-hook <install|uninstall|doctor|detect-project|rewrite-command|codex-pretool|version|--version>")
 }
 
 type installOptions struct {

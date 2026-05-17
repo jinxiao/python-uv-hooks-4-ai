@@ -1,0 +1,56 @@
+version: 2
+
+project_name: uv-python-hook
+
+builds:
+  - id: uv-python-hook
+    main: ./cmd/uv-python-hook
+    binary: uv-python-hook
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+      - -buildvcs=false
+    ldflags:
+      - -s -w
+      - -X uv-python-hook/internal/hook.Version={{ .Version }}
+      - -X uv-python-hook/internal/hook.Commit={{ .Commit }}
+      - -X uv-python-hook/internal/hook.Date={{ .Date }}
+
+archives:
+  - id: uv-python-hook
+    ids:
+      - uv-python-hook
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+release:
+  prerelease: auto
+  mode: replace

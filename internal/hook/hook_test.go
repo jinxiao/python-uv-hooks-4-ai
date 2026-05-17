@@ -255,6 +255,13 @@ func TestProjectInstallGeneratesOnlyHookFiles(t *testing.T) {
 	if !fileExists(filepath.Join(dir, ".opencode", "plugins", "uv-python-agent-hooks.js")) {
 		t.Fatal("missing opencode plugin")
 	}
+	plugin, err := os.ReadFile(filepath.Join(dir, ".opencode", "plugins", "uv-python-agent-hooks.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(plugin), "Managed file: uv-python-agent-hooks") {
+		t.Fatalf("opencode plugin missing managed marker: %s", string(plugin))
+	}
 	if fileExists(filepath.Join(dir, ".uv-python-agent-hooks")) {
 		t.Fatal("hook-only install should not create shim dir")
 	}
@@ -494,6 +501,22 @@ func TestCodexPretoolPayloadShape(t *testing.T) {
 	}
 	if !strings.Contains(b.String(), `"permissionDecision": "deny"`) {
 		t.Fatalf("unexpected output: %s", b.String())
+	}
+}
+
+func TestVersionStringIncludesInjectedMetadata(t *testing.T) {
+	oldVersion, oldCommit, oldDate := Version, Commit, Date
+	t.Cleanup(func() {
+		Version, Commit, Date = oldVersion, oldCommit, oldDate
+	})
+
+	Version = "1.2.3"
+	Commit = "abc123"
+	Date = "2026-05-17T08:00:00Z"
+
+	want := "uv-python-hook 1.2.3 (commit=abc123, date=2026-05-17T08:00:00Z)"
+	if got := VersionString(); got != want {
+		t.Fatalf("VersionString() = %q, want %q", got, want)
 	}
 }
 
