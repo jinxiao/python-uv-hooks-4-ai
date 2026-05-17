@@ -178,6 +178,13 @@ func TestProjectInstallGeneratesOnlyHookFiles(t *testing.T) {
 	if !fileExists(filepath.Join(dir, ".opencode", "plugins", "uv-python-agent-hooks.js")) {
 		t.Fatal("missing opencode plugin")
 	}
+	plugin, err := os.ReadFile(filepath.Join(dir, ".opencode", "plugins", "uv-python-agent-hooks.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(plugin), "Managed file: uv-python-agent-hooks") {
+		t.Fatalf("opencode plugin missing managed marker: %s", string(plugin))
+	}
 	if fileExists(filepath.Join(dir, ".uv-python-agent-hooks")) {
 		t.Fatal("hook-only install should not create shim dir")
 	}
