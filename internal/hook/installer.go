@@ -7,6 +7,10 @@ import (
 	"strings"
 )
 
+var commandAvailable = func(name string) bool {
+	return which(name) != nil
+}
+
 func newInstaller(scope, cwd string) installer {
 	if scope == "" {
 		scope = "user"
@@ -15,6 +19,11 @@ func newInstaller(scope, cwd string) installer {
 }
 
 func (i installer) install(targets []string) map[string]any {
+	targetSelection := "explicit"
+	if len(targets) == 0 {
+		targetSelection = "auto"
+		targets = i.autoInstallTargets()
+	}
 	targetMap := map[string]any{}
 	if contains(targets, "codex") {
 		targetMap["codex"] = i.installCodex()
@@ -23,37 +32,109 @@ func (i installer) install(targets []string) map[string]any {
 		targetMap["opencode"] = i.installOpenCode()
 	}
 	return map[string]any{
-		"scope":      i.scope,
-		"activation": "hook-only",
-		"targets":    targetMap,
+		"scope":            i.scope,
+		"activation":       "hook-only",
+		"target_selection": targetSelection,
+		"selected_targets": targets,
+		"targets":          targetMap,
 	}
 }
 
 func (i installer) uninstall(targets []string) map[string]any {
+	targetSelection := "explicit"
+	if len(targets) == 0 {
+		targetSelection = "auto"
+		targets = i.autoUninstallTargets()
+	}
 	var removed []string
+	targetMap := map[string]any{}
 	if contains(targets, "codex") {
-		path := i.codexHooksPath()
-		if fileExists(path) {
-			data, err := readJSONFile(path)
-			if err != nil {
-				data = map[string]any{"hooks": map[string]any{}}
-			}
-			removeCodexHooks(data)
-			writeJSONFile(path, data)
-			removed = append(removed, path)
+		result := i.uninstallCodex()
+		targetMap["codex"] = result
+		if changed, _ := result["changed"].(bool); changed {
+			removed = append(removed, i.codexHooksPath())
 		}
 	}
 	if contains(targets, "opencode") {
-		path := i.opencodePluginPath()
-		if fileExists(path) {
-			_ = os.Remove(path)
-			removed = append(removed, path)
+		result := i.uninstallOpenCode()
+		targetMap["opencode"] = result
+		if changed, _ := result["changed"].(bool); changed {
+			removed = append(removed, i.opencodePluginPath())
 		}
 	}
 	return map[string]any{
-		"scope":   i.scope,
-		"removed": removed,
+		"scope":            i.scope,
+		"target_selection": targetSelection,
+		"selected_targets": targets,
+		"removed":          removed,
+		"targets":          targetMap,
 	}
+}
+
+func (i installer) autoInstallTargets() []string {
+	targets := []string{}
+	if commandAvailable("codex") {
+		targets = append(targets, "codex")
+	}
+	if commandAvailable("opencode") {
+		targets = append(targets, "opencode")
+	}
+	return targets
+}
+
+func (i installer) autoUninstallTargets() []string {
+	targets := []string{}
+	if commandAvailable("codex") || fileExists(i.codexHooksPath()) {
+		targets = append(targets, "codex")
+	}
+	if commandAvailable("opencode") || fileExists(i.opencodePluginPath()) {
+		targets = append(targets, "opencode")
+	}
+	return targets
+}
+
+func (i installer) uninstallCodex() map[string]any {
+	path := i.codexHooksPath()
+	result := map[string]any{
+		"hooks_json":    path,
+		"exists":        fileExists(path),
+		"changed":       false,
+		"removed_hooks": 0,
+	}
+	if !fileExists(path) {
+		return result
+	}
+	data, err := readJSONFile(path)
+	if err != nil {
+		result["error"] = err.Error()
+		return result
+	}
+	removed := removeCodexHooks(data)
+	result["removed_hooks"] = removed
+	if removed == 0 {
+		return result
+	}
+	writeJSONFile(path, data)
+	result["changed"] = true
+	return result
+}
+
+func (i installer) uninstallOpenCode() map[string]any {
+	path := i.opencodePluginPath()
+	result := map[string]any{
+		"plugin":  path,
+		"exists":  fileExists(path),
+		"changed": false,
+	}
+	if !fileExists(path) {
+		return result
+	}
+	if err := os.Remove(path); err != nil {
+		result["error"] = err.Error()
+		return result
+	}
+	result["changed"] = true
+	return result
 }
 
 func (i installer) installState() map[string]any {
@@ -129,22 +210,33 @@ func (i installer) opencodePluginPath() string {
 	return filepath.Join(homeDir(), ".config", "opencode", "plugins", "uv-python-agent-hooks.js")
 }
 
-func removeCodexHooks(data map[string]any) {
+func removeCodexHooks(data map[string]any) int {
 	hooks := asMap(data["hooks"])
 	if hooks == nil {
 		hooks = data
 	}
+	removed := 0
 	for _, event := range []string{"PreToolUse", "PermissionRequest"} {
 		entries := asSlice(hooks[event])
+		if len(entries) == 0 {
+			continue
+		}
 		var kept []any
 		for _, entry := range entries {
 			encoded, _ := json.Marshal(entry)
 			if !isOurCodexHook(string(encoded)) {
 				kept = append(kept, entry)
+			} else {
+				removed++
 			}
 		}
-		hooks[event] = kept
+		if len(kept) == 0 {
+			delete(hooks, event)
+		} else {
+			hooks[event] = kept
+		}
 	}
+	return removed
 }
 
 func isOurCodexHook(text string) bool {

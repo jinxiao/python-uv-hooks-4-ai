@@ -142,13 +142,22 @@ uv-python-hook detect-project
 
 ## Usage With Codex CLI
 
-Install the tested Codex hook for the current Windows user:
+By default, `install` uses user scope and auto-detects installed targets. It
+installs the Codex hook only when `codex` is found on `PATH`, and installs the
+OpenCode plugin only when `opencode` is found on `PATH`:
+
+```powershell
+uv-python-hook install
+```
+
+To force a specific target for the current user:
 
 ```powershell
 uv-python-hook install --user --targets codex
 ```
 
-For a project-local install, run this inside the target repository:
+For a project-local install, run this inside the target repository and specify
+`--project`:
 
 ```powershell
 uv-python-hook install --project --targets codex
@@ -195,7 +204,15 @@ Run `doctor` after installation to inspect tool availability and hook paths:
 uv-python-hook doctor
 ```
 
-Uninstall the Codex hook:
+By default, `uninstall` also uses user scope and auto-detects targets. It
+removes existing hook files even if the corresponding command is no longer on
+`PATH`:
+
+```powershell
+uv-python-hook uninstall
+```
+
+To force a specific target:
 
 ```powershell
 uv-python-hook uninstall --user --targets codex
@@ -209,7 +226,7 @@ uv-python-hook uninstall --project --targets codex
 
 ## Usage With OpenCode
 
-Install the OpenCode plugin:
+Install the OpenCode plugin explicitly:
 
 ```powershell
 uv-python-hook install --user --targets opencode
@@ -284,8 +301,10 @@ virtualenv env                       -> uv venv .venv
 ## Commands
 
 ```powershell
-uv-python-hook install --user --targets codex
-uv-python-hook uninstall --user --targets codex
+uv-python-hook install
+uv-python-hook uninstall
+uv-python-hook install --project --targets codex
+uv-python-hook uninstall --project --targets codex
 uv-python-hook doctor
 uv-python-hook detect-project
 uv-python-hook rewrite-command "pip install -r requirements.txt"

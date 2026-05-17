@@ -119,7 +119,7 @@ type installOptions struct {
 }
 
 func parseInstallArgs(args []string) installOptions {
-	opts := installOptions{scope: "user", targets: "codex,opencode"}
+	opts := installOptions{scope: "user"}
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--user":
