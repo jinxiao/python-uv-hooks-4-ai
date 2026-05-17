@@ -180,6 +180,7 @@ Examples:
 - `pip install requests` -> `uv --cache-dir <temp>\uv-python-agent-hooks\uv-cache pip install requests`
 - `python -m pip install requests` -> `uv --cache-dir <temp>\uv-python-agent-hooks\uv-cache pip install requests`
 - `python -m venv` -> `uv --cache-dir <temp>\uv-python-agent-hooks\uv-cache venv .venv`
+- `python -m venv venv` -> `uv --cache-dir <temp>\uv-python-agent-hooks\uv-cache venv venv`
 
 For requirements installs, the hook checks the nearest `pyproject.toml` or
 `uv.lock`:
@@ -254,6 +255,30 @@ Override it with:
 
 ```powershell
 $env:UV_PYTHON_AGENT_HOOKS_CACHE_DIR = "D:\path\to\uv-cache"
+```
+
+## Virtual Environment Directory
+
+By default, venv rewrites preserve an explicit path:
+
+```text
+python -m venv      -> uv venv .venv
+python -m venv venv -> uv venv venv
+```
+
+Set `UV_PYTHON_AGENT_HOOKS_FORCE_DOT_VENV=on` to force the venv target path to
+`.venv` even when the original command names another path:
+
+```powershell
+$env:UV_PYTHON_AGENT_HOOKS_FORCE_DOT_VENV = "on"
+```
+
+With the switch enabled:
+
+```text
+python -m venv venv                  -> uv venv .venv
+python -m venv --python 3.12 venv    -> uv venv --python 3.12 .venv
+virtualenv env                       -> uv venv .venv
 ```
 
 ## Commands

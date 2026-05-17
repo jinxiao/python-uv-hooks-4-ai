@@ -51,6 +51,82 @@ func TestRewriteOpenCodeCanForceUVCache(t *testing.T) {
 	}
 }
 
+func TestRewriteVenvAddsDotVenvByDefault(t *testing.T) {
+	result := rewriteCommandWithOptions(rewriteOptions{
+		command: "python -m venv",
+		target:  "opencode",
+	})
+	want := "uv venv .venv"
+	if result.Command != want {
+		t.Fatalf("command = %q, want %q", result.Command, want)
+	}
+}
+
+func TestRewriteVenvPreservesExplicitPathByDefault(t *testing.T) {
+	result := rewriteCommandWithOptions(rewriteOptions{
+		command: "python -m venv venv",
+		target:  "opencode",
+	})
+	want := "uv venv venv"
+	if result.Command != want {
+		t.Fatalf("command = %q, want %q", result.Command, want)
+	}
+}
+
+func TestRewriteVenvCanForceDotVenvPath(t *testing.T) {
+	t.Setenv(hookForceDotVenvEnv, "on")
+	result := rewriteCommandWithOptions(rewriteOptions{
+		command: "python -m venv venv",
+		target:  "opencode",
+	})
+	want := "uv venv .venv"
+	if result.Command != want {
+		t.Fatalf("command = %q, want %q", result.Command, want)
+	}
+}
+
+func TestRewriteVenvForceDotVenvPreservesOptions(t *testing.T) {
+	t.Setenv(hookForceDotVenvEnv, "on")
+	result := rewriteCommandWithOptions(rewriteOptions{
+		command: "python -m venv --python 3.12 --prompt demo venv",
+		target:  "opencode",
+	})
+	want := "uv venv --python 3.12 --prompt demo .venv"
+	if result.Command != want {
+		t.Fatalf("command = %q, want %q", result.Command, want)
+	}
+}
+
+func TestRewriteVenvForceDotVenvPreservesUVValueOptions(t *testing.T) {
+	t.Setenv(hookForceDotVenvEnv, "on")
+	cases := []struct {
+		command string
+		want    string
+	}{
+		{
+			command: "python -m venv --python-preference only-managed env",
+			want:    "uv venv --python-preference only-managed .venv",
+		},
+		{
+			command: "python -m venv --link-mode copy env",
+			want:    "uv venv --link-mode copy .venv",
+		},
+		{
+			command: "python -m venv --link-mode copy",
+			want:    "uv venv --link-mode copy .venv",
+		},
+	}
+	for _, tc := range cases {
+		result := rewriteCommandWithOptions(rewriteOptions{
+			command: tc.command,
+			target:  "opencode",
+		})
+		if result.Command != tc.want {
+			t.Fatalf("command = %q, want %q", result.Command, tc.want)
+		}
+	}
+}
+
 func TestRewritePipInstallPackageUsesUVPip(t *testing.T) {
 	result := rewriteCommand("pip install requests", "", "")
 	want := uvPrefix() + " pip install requests"

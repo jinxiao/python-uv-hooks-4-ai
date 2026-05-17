@@ -27,6 +27,7 @@ func rewriteCommand(command, cwd, shell string) rewriteResult {
 
 func rewriteCommandWithOptions(opts rewriteOptions) rewriteResult {
 	useHookCache := shouldUseHookCache(opts.target, opts.cacheMode)
+	forceDotVenv := shouldForceDotVenv()
 	command := opts.command
 	project := detectProject(opts.cwd)
 	parts := splitShell(command)
@@ -35,7 +36,7 @@ func rewriteCommandWithOptions(opts rewriteOptions) rewriteResult {
 	var rewritten strings.Builder
 	for _, part := range parts {
 		if part.kind == shellPartCommand {
-			newText, reason := rewriteSimpleCommand(part.text, project, opts.shell, useHookCache)
+			newText, reason := rewriteSimpleCommand(part.text, project, opts.shell, useHookCache, forceDotVenv)
 			rewritten.WriteString(newText)
 			if reason != "" {
 				changed = true
@@ -61,7 +62,7 @@ func rewriteCommandWithOptions(opts rewriteOptions) rewriteResult {
 	}
 }
 
-func rewriteSimpleCommand(segment string, project projectDetection, shell string, useHookCache bool) (string, string) {
+func rewriteSimpleCommand(segment string, project projectDetection, shell string, useHookCache, forceDotVenv bool) (string, string) {
 	leadingLen := len(segment) - len(strings.TrimLeftFunc(segment, unicode.IsSpace))
 	trailingLen := len(segment) - len(strings.TrimRightFunc(segment, unicode.IsSpace))
 	leading := segment[:leadingLen]
@@ -89,7 +90,7 @@ func rewriteSimpleCommand(segment string, project projectDetection, shell string
 	if contains(interpreterCommands, canonical) {
 		args := splitArgs(rest)
 		if venvArgs, ok := interpreterVenvArgs(args); ok {
-			return leading + uv + " venv " + commandToShellText(venvArgsWithDefault(venvArgs), shell) + trailing, first + " -m venv -> uv venv"
+			return leading + uv + " venv " + commandToShellText(venvArgsWithDefault(venvArgs, forceDotVenv), shell) + trailing, first + " -m venv -> uv venv"
 		}
 		if pipArgs, ok := interpreterPipArgs(args); ok {
 			if isRequirementsInstall(pipArgs) && project.Syncable {
@@ -128,7 +129,7 @@ func rewriteSimpleCommand(segment string, project projectDetection, shell string
 	}
 	if contains(venvCommands, canonical) {
 		args := splitArgs(rest)
-		return leading + uv + " venv " + commandToShellText(venvArgsWithDefault(args), shell) + trailing, first + " -> uv venv"
+		return leading + uv + " venv " + commandToShellText(venvArgsWithDefault(args, forceDotVenv), shell) + trailing, first + " -> uv venv"
 	}
 	return segment, ""
 }
@@ -363,20 +364,59 @@ func projectUsesUV(project projectDetection) bool {
 	return project.Manager == "uv" || project.Pyproject != nil || project.UVLock != nil
 }
 
-func venvArgsWithDefault(args []string) []string {
-	if hasVenvPathArg(args) {
+func venvArgsWithDefault(args []string, forceDotVenv bool) []string {
+	if forceDotVenv {
+		return venvArgsWithPath(args, ".venv")
+	}
+	if venvPathArgIndex(args) >= 0 {
 		return args
 	}
 	out := append([]string{}, args...)
 	return append(out, ".venv")
 }
 
-func hasVenvPathArg(args []string) bool {
-	valueOptions := []string{"-p", "--python", "--prompt", "--index", "--default-index", "-i", "--index-url", "--find-links", "-f", "--cache-dir", "--config-file"}
+func venvArgsWithPath(args []string, path string) []string {
+	out := append([]string{}, args...)
+	if index := venvPathArgIndex(out); index >= 0 {
+		out[index] = path
+		return out
+	}
+	return append(out, path)
+}
+
+func venvPathArgIndex(args []string) int {
+	valueOptions := []string{
+		"-p",
+		"--python",
+		"--python-preference",
+		"--prompt",
+		"--index-strategy",
+		"--keyring-provider",
+		"--exclude-newer",
+		"--exclude-newer-package",
+		"--link-mode",
+		"--index",
+		"--default-index",
+		"-i",
+		"--index-url",
+		"--extra-index-url",
+		"--find-links",
+		"-f",
+		"--refresh-package",
+		"--cache-dir",
+		"--color",
+		"--allow-insecure-host",
+		"--directory",
+		"--project",
+		"--config-file",
+	}
 	for i := 0; i < len(args); {
 		arg := args[i]
 		if arg == "--" {
-			return i+1 < len(args)
+			if i+1 < len(args) {
+				return i + 1
+			}
+			return -1
 		}
 		if contains(valueOptions, arg) {
 			i += 2
@@ -393,9 +433,9 @@ func hasVenvPathArg(args []string) bool {
 			i++
 			continue
 		}
-		return true
+		return i
 	}
-	return false
+	return -1
 }
 
 type shellPartKind int

@@ -12,9 +12,10 @@ import (
 )
 
 const (
-	uvCacheEnv       = "UV_CACHE_DIR"
-	hookCacheEnv     = "UV_PYTHON_AGENT_HOOKS_CACHE_DIR"
-	hookCacheModeEnv = "UV_PYTHON_AGENT_HOOKS_CACHE_MODE"
+	uvCacheEnv          = "UV_CACHE_DIR"
+	hookCacheEnv        = "UV_PYTHON_AGENT_HOOKS_CACHE_DIR"
+	hookCacheModeEnv    = "UV_PYTHON_AGENT_HOOKS_CACHE_MODE"
+	hookForceDotVenvEnv = "UV_PYTHON_AGENT_HOOKS_FORCE_DOT_VENV"
 )
 
 type projectDetection struct {
@@ -238,6 +239,15 @@ func shouldUseHookCache(target, cacheMode string) bool {
 		return false
 	}
 	return strings.ToLower(strings.TrimSpace(target)) != "opencode"
+}
+
+func shouldForceDotVenv() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(hookForceDotVenvEnv))) {
+	case "1", "true", "yes", "on", "force", "forced":
+		return true
+	default:
+		return false
+	}
 }
 
 func cacheEnv() []string {
