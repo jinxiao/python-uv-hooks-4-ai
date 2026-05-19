@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -274,6 +275,210 @@ func TestInstallArgsDefaultToUserScopeAndAutoTargets(t *testing.T) {
 	}
 	if opts.targets != "" {
 		t.Fatalf("targets = %q, want empty auto target selection", opts.targets)
+	}
+	if !opts.installBinary {
+		t.Fatal("install should include binary install by default")
+	}
+	if !opts.updateBinaryPath {
+		t.Fatal("expected binary PATH updates to be enabled when binary install is requested")
+	}
+}
+
+func TestInstallArgsCanConfigureBinaryInstall(t *testing.T) {
+	opts := parseInstallArgs([]string{"--bin-dir", "custom-bin", "--no-path"})
+	if !opts.installBinary {
+		t.Fatal("expected binary install to be enabled by default")
+	}
+	if opts.binaryDir != "custom-bin" {
+		t.Fatalf("binaryDir = %q, want custom-bin", opts.binaryDir)
+	}
+	if opts.updateBinaryPath {
+		t.Fatal("expected --no-path to disable binary PATH updates")
+	}
+}
+
+func TestInstallArgsCanDisableBinaryInstall(t *testing.T) {
+	opts := parseInstallArgs([]string{"--hooks-only"})
+	if opts.installBinary {
+		t.Fatal("expected --hooks-only to disable binary install")
+	}
+
+	opts = parseInstallArgs([]string{"--no-binary"})
+	if opts.installBinary {
+		t.Fatal("expected --no-binary to disable binary install")
+	}
+}
+
+func TestInstallBinaryArgsDefaultToUpdatingPath(t *testing.T) {
+	opts := parseInstallBinaryArgs(nil)
+	if !opts.updatePath {
+		t.Fatal("expected install-bin to update PATH by default")
+	}
+	if opts.dir != "" {
+		t.Fatalf("dir = %q, want empty default", opts.dir)
+	}
+
+	opts = parseInstallBinaryArgs([]string{"--dir", "custom-bin", "--no-path"})
+	if opts.updatePath {
+		t.Fatal("expected --no-path to disable PATH updates")
+	}
+	if opts.dir != "custom-bin" {
+		t.Fatalf("dir = %q, want custom-bin", opts.dir)
+	}
+}
+
+func TestInstallBinaryCopiesExecutableWithoutPathUpdate(t *testing.T) {
+	dir := t.TempDir()
+	out := installBinary(installBinaryOptions{dir: dir, updatePath: false})
+
+	if out["error"] != nil {
+		t.Fatalf("install-bin error: %#v", out["error"])
+	}
+	destination := filepath.Join(dir, binaryInstallName())
+	if out["destination"] != destination {
+		t.Fatalf("destination = %#v, want %q", out["destination"], destination)
+	}
+	if !fileExists(destination) {
+		t.Fatal("expected installed binary")
+	}
+	pathResult := asMap(out["path"])
+	if pathResult["enabled"] != false {
+		t.Fatalf("path result = %#v, want disabled", pathResult)
+	}
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(destination)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode()&0o111 == 0 {
+			t.Fatalf("installed binary is not executable: %v", info.Mode())
+		}
+	}
+}
+
+func TestInstallBinaryIsIdempotentWhenDestinationContentMatches(t *testing.T) {
+	dir := t.TempDir()
+	first := installBinary(installBinaryOptions{dir: dir, updatePath: false})
+	if first["error"] != nil {
+		t.Fatalf("first install-bin error: %#v", first["error"])
+	}
+
+	second := installBinary(installBinaryOptions{dir: dir, updatePath: false})
+	if second["error"] != nil {
+		t.Fatalf("second install-bin error: %#v", second["error"])
+	}
+	if second["changed"] != false {
+		t.Fatalf("second install changed = %#v, want false", second["changed"])
+	}
+	if second["already_installed"] != true {
+		t.Fatalf("already_installed = %#v, want true", second["already_installed"])
+	}
+}
+
+func TestInstallBinaryUpdatesExistingDifferentDestination(t *testing.T) {
+	dir := t.TempDir()
+	destination := filepath.Join(dir, binaryInstallName())
+	writeFile(t, destination, "old binary")
+
+	out := installBinary(installBinaryOptions{dir: dir, updatePath: false})
+	if out["error"] != nil {
+		t.Fatalf("install-bin error: %#v", out["error"])
+	}
+	if out["action"] != "updated" {
+		t.Fatalf("action = %#v, want updated", out["action"])
+	}
+	if out["changed"] != true {
+		t.Fatalf("changed = %#v, want true", out["changed"])
+	}
+	source, err := currentExecutablePath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sameFileContent(source, destination) {
+		t.Fatal("destination was not replaced with current executable")
+	}
+}
+
+func TestEnsureDirFirstInProcessPathReordersExistingDir(t *testing.T) {
+	oldDir := t.TempDir()
+	installDir := t.TempDir()
+	t.Setenv("PATH", oldDir+string(os.PathListSeparator)+installDir)
+
+	ensureDirFirstInProcessPath(installDir)
+
+	parts := filepath.SplitList(os.Getenv("PATH"))
+	if len(parts) == 0 || !samePath(parts[0], installDir) {
+		t.Fatalf("PATH = %q, want install dir first", os.Getenv("PATH"))
+	}
+	if strings.Count(os.Getenv("PATH"), installDir) != 1 {
+		t.Fatalf("PATH duplicated install dir: %q", os.Getenv("PATH"))
+	}
+}
+
+func TestShellProfileRecognizesExistingHomeLocalBin(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell profile PATH detection is for Unix-like systems")
+	}
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	profile := shellProfilePath()
+	writeFile(t, profile, "export PATH=\"$HOME/.local/bin:$PATH\"\n")
+
+	if !shellProfileHasDir(filepath.Join(home, ".local", "bin")) {
+		t.Fatal("expected $HOME/.local/bin to be recognized")
+	}
+	changed, _, _, err := ensureShellProfilePath(filepath.Join(home, ".local", "bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed {
+		t.Fatal("expected existing profile entry to be idempotent")
+	}
+	data, err := os.ReadFile(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(data), ".local/bin") != 1 {
+		t.Fatalf("profile entry duplicated:\n%s", string(data))
+	}
+}
+
+func TestInstallBinaryPersistsUserPathEvenWhenProcessPathAlreadyHasDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell profile PATH mutation is for Unix-like systems")
+	}
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	installDir := filepath.Join(home, ".local", "bin")
+	t.Setenv("PATH", installDir)
+
+	out := installBinary(installBinaryOptions{updatePath: true})
+	if out["error"] != nil {
+		t.Fatalf("install-bin error: %#v", out["error"])
+	}
+	pathResult := asMap(out["path"])
+	if pathResult["persistent_path_changed"] != true {
+		t.Fatalf("path result = %#v, want persistent PATH change", pathResult)
+	}
+	if pathResult["process_path_precedence_changed"] != false {
+		t.Fatalf("path result = %#v, process PATH should already contain dir", pathResult)
+	}
+	data, err := os.ReadFile(shellProfilePath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), pathProfileMarker) {
+		t.Fatalf("missing managed profile entry:\n%s", string(data))
+	}
+}
+
+func TestExpandWindowsPercentEnvironmentVariables(t *testing.T) {
+	t.Setenv("LOCALAPPDATA", filepath.Join("C:", "Users", "demo", "AppData", "Local"))
+	got := expandWindowsEnv(`%LOCALAPPDATA%\Programs\uv-python-hook`)
+	if !strings.Contains(got, filepath.Join("C:", "Users", "demo", "AppData", "Local")) {
+		t.Fatalf("expanded path = %q", got)
 	}
 }
 

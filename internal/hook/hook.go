@@ -61,9 +61,25 @@ func Run(args []string) int {
 	case "--version", "version":
 		fmt.Println(VersionString())
 		return 0
+	case "install-bin":
+		opts := parseInstallBinaryArgs(args[1:])
+		printJSON(installBinary(opts))
+		return 0
 	case "install":
 		opts := parseInstallArgs(args[1:])
-		printJSON(newInstaller(opts.scope, opts.cwd).install(splitTargets(opts.targets)))
+		var binaryResult map[string]any
+		if opts.installBinary {
+			binaryResult = installBinary(installBinaryOptions{
+				dir:        opts.binaryDir,
+				updatePath: opts.updateBinaryPath,
+			})
+		}
+		result := newInstaller(opts.scope, opts.cwd).install(splitTargets(opts.targets))
+		if binaryResult != nil {
+			result["activation"] = "binary-and-hooks"
+			result["binary"] = binaryResult
+		}
+		printJSON(result)
 		return 0
 	case "uninstall":
 		opts := parseInstallArgs(args[1:])
@@ -112,17 +128,41 @@ func Run(args []string) int {
 }
 
 func printUsage() {
-	_, _ = fmt.Fprintln(os.Stderr, "usage: uv-python-hook <install|uninstall|doctor|detect-project|rewrite-command|codex-pretool|version|--version>")
+	_, _ = fmt.Fprintln(os.Stderr, "usage: uv-python-hook <install-bin|install|uninstall|doctor|detect-project|rewrite-command|codex-pretool|version|--version>")
 }
 
 type installOptions struct {
-	scope   string
-	targets string
-	cwd     string
+	scope            string
+	targets          string
+	cwd              string
+	installBinary    bool
+	binaryDir        string
+	updateBinaryPath bool
+}
+
+type installBinaryOptions struct {
+	dir        string
+	updatePath bool
+}
+
+func parseInstallBinaryArgs(args []string) installBinaryOptions {
+	opts := installBinaryOptions{updatePath: true}
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--dir":
+			if i+1 < len(args) {
+				i++
+				opts.dir = args[i]
+			}
+		case "--no-path":
+			opts.updatePath = false
+		}
+	}
+	return opts
 }
 
 func parseInstallArgs(args []string) installOptions {
-	opts := installOptions{scope: "user"}
+	opts := installOptions{scope: "user", installBinary: true, updateBinaryPath: true}
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--user":
@@ -139,6 +179,17 @@ func parseInstallArgs(args []string) installOptions {
 				i++
 				opts.cwd = args[i]
 			}
+		case "--with-binary", "--binary":
+			opts.installBinary = true
+		case "--hooks-only", "--no-binary":
+			opts.installBinary = false
+		case "--bin-dir":
+			if i+1 < len(args) {
+				i++
+				opts.binaryDir = args[i]
+			}
+		case "--no-path":
+			opts.updateBinaryPath = false
 		}
 	}
 	return opts
@@ -295,6 +346,7 @@ func doctor(cwd string) map[string]any {
 		},
 		"codex":           which("codex"),
 		"opencode":        which("opencode"),
+		"binary":          binaryInstallState(""),
 		"project":         detectProject(cwd),
 		"user_install":    newInstaller("user", cwd).installState(),
 		"project_install": newInstaller("project", cwd).installState(),

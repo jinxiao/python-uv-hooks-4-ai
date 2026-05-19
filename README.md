@@ -1,7 +1,7 @@
 # uv Python Agent Hooks
 
-Go hook-only integration that nudges Python-related commands in AI coding
-agents toward `uv`.
+Go CLI integration that nudges Python-related commands in AI coding agents
+toward `uv`.
 
 ## Status
 
@@ -102,15 +102,73 @@ go install -buildvcs=false .\cmd\uv-python-hook
 `-buildvcs=false` avoids Go VCS stamping failures in checkouts where Git marks
 the directory as unsafe or unavailable.
 
-After building or installing, confirm the command is reachable:
+## Install
+
+`uv-python-hook install` installs both the `uv-python-hook` binary and agent
+hooks by default. Run it from a built or downloaded executable to copy the
+binary into a stable user location and make that location available on `PATH`.
+
+Windows PowerShell installs to
+`%LOCALAPPDATA%\Programs\uv-python-hook\uv-python-hook.exe` and updates the
+user `PATH`:
+
+```powershell
+.\bin\uv-python-hook.exe install
+```
+
+Open a new terminal after `install` or `install-bin` if the current shell
+cannot find `uv-python-hook` yet.
+
+Linux installs to `~/.local/bin/uv-python-hook` and appends a managed PATH
+entry to `~/.profile` when needed:
+
+```sh
+chmod +x ./bin/uv-python-hook
+./bin/uv-python-hook install
+```
+
+macOS installs to `~/.local/bin/uv-python-hook` and appends a managed PATH
+entry to `~/.zprofile` when needed:
+
+```sh
+chmod +x ./bin/uv-python-hook
+./bin/uv-python-hook install
+```
+
+For automation, choose a specific location or skip PATH changes:
+
+```sh
+./bin/uv-python-hook install --bin-dir "$HOME/.local/bin"
+./bin/uv-python-hook install --bin-dir ./dist/bin --no-path
+./bin/uv-python-hook install-bin --dir ./dist/bin --no-path
+```
+
+Use `install-bin` when you only want to copy the CLI binary and update PATH
+without installing Codex or OpenCode hooks.
+
+Use `install --hooks-only` or `install --no-binary` when you only want to write
+agent hook files and leave binary placement untouched.
+
+Both `install` and `install-bin` are idempotent. They report
+detected `uv-python-hook` binaries from the current executable, `PATH`, the
+default install location, and the selected destination; matching binaries and
+existing PATH/profile entries are not duplicated.
+
+If an older binary already exists at the selected destination, installation
+replaces it with the currently running executable and reports `action:
+updated`. If `PATH` still resolves `uv-python-hook` from a different location,
+the install result includes a warning so automation can surface the shadowed
+old binary.
+
+After installing, confirm the command is reachable:
 
 ```powershell
 uv-python-hook doctor
 uv-python-hook --version
 ```
 
-If you built into `.\bin`, either add that directory to `PATH` or run the binary
-by path:
+If you built into `.\bin` and have not run `install` or `install-bin`, run the
+binary by path:
 
 ```powershell
 .\bin\uv-python-hook.exe doctor
@@ -324,7 +382,9 @@ virtualenv env                       -> uv venv .venv
 ## Commands
 
 ```powershell
+uv-python-hook install-bin
 uv-python-hook install
+uv-python-hook install --hooks-only
 uv-python-hook uninstall
 uv-python-hook install --project --targets codex
 uv-python-hook uninstall --project --targets codex
