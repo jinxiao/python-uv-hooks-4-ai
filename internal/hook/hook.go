@@ -63,7 +63,12 @@ func Run(args []string) int {
 		return 0
 	case "install-bin":
 		opts := parseInstallBinaryArgs(args[1:])
-		printJSON(installBinary(opts))
+		result := installBinary(opts)
+		if opts.debug {
+			printJSON(result)
+		} else {
+			printInstallBinarySummary(result)
+		}
 		return 0
 	case "install":
 		opts := parseInstallArgs(args[1:])
@@ -79,7 +84,11 @@ func Run(args []string) int {
 			result["activation"] = "binary-and-hooks"
 			result["binary"] = binaryResult
 		}
-		printJSON(result)
+		if opts.debug {
+			printJSON(result)
+		} else {
+			printInstallSummary(result)
+		}
 		return 0
 	case "uninstall":
 		opts := parseInstallArgs(args[1:])
@@ -138,11 +147,13 @@ type installOptions struct {
 	installBinary    bool
 	binaryDir        string
 	updateBinaryPath bool
+	debug            bool
 }
 
 type installBinaryOptions struct {
 	dir        string
 	updatePath bool
+	debug      bool
 }
 
 func parseInstallBinaryArgs(args []string) installBinaryOptions {
@@ -156,6 +167,8 @@ func parseInstallBinaryArgs(args []string) installBinaryOptions {
 			}
 		case "--no-path":
 			opts.updatePath = false
+		case "--debug":
+			opts.debug = true
 		}
 	}
 	return opts
@@ -190,6 +203,8 @@ func parseInstallArgs(args []string) installOptions {
 			}
 		case "--no-path":
 			opts.updateBinaryPath = false
+		case "--debug":
+			opts.debug = true
 		}
 	}
 	return opts
@@ -262,6 +277,108 @@ func readJSONStdin() map[string]any {
 func printJSON(value any) {
 	encoded, _ := json.MarshalIndent(value, "", "  ")
 	fmt.Println(string(encoded))
+}
+
+func printInstallBinarySummary(result map[string]any) {
+	if errText, _ := result["error"].(string); errText != "" {
+		fmt.Println("uv-python-hook install-bin failed: " + errText)
+		return
+	}
+	action, _ := result["action"].(string)
+	destination, _ := result["destination"].(string)
+	fmt.Println("uv-python-hook binary " + installActionText(action) + ": " + destination)
+	printPathSummary(asMap(result["path"]))
+	printWarnings(result["warnings"])
+	fmt.Println("Run with --debug for details.")
+}
+
+func printInstallSummary(result map[string]any) {
+	if binary := asMap(result["binary"]); binary != nil {
+		if errText, _ := binary["error"].(string); errText != "" {
+			fmt.Println("uv-python-hook install failed: " + errText)
+			return
+		}
+		action, _ := binary["action"].(string)
+		destination, _ := binary["destination"].(string)
+		fmt.Println("uv-python-hook binary " + installActionText(action) + ": " + destination)
+		printPathSummary(asMap(binary["path"]))
+		printWarnings(binary["warnings"])
+	}
+
+	targets := stringSliceFromAny(result["selected_targets"])
+	switch len(targets) {
+	case 0:
+		fmt.Println("Hooks: no Codex or OpenCode targets detected.")
+	default:
+		fmt.Println("Hooks: installed for " + strings.Join(targets, ", ") + ".")
+	}
+	fmt.Println("Run with --debug for details.")
+}
+
+func installActionText(action string) string {
+	switch action {
+	case "installed":
+		return "installed"
+	case "updated":
+		return "updated"
+	case "unchanged", "current-executable-is-destination":
+		return "already current"
+	default:
+		return action
+	}
+}
+
+func printPathSummary(pathResult map[string]any) {
+	if pathResult == nil {
+		return
+	}
+	if enabled, _ := pathResult["enabled"].(bool); !enabled {
+		fmt.Println("PATH: not changed (--no-path).")
+		return
+	}
+	if errText, _ := pathResult["error"].(string); errText != "" {
+		fmt.Println("PATH: update failed: " + errText)
+		return
+	}
+	if changed, _ := pathResult["changed"].(bool); changed {
+		fmt.Println("PATH: updated; open a new terminal if the command is still shadowed.")
+		return
+	}
+	fmt.Println("PATH: already configured.")
+}
+
+func printWarnings(value any) {
+	var warnings []string
+	switch typed := value.(type) {
+	case []string:
+		warnings = typed
+	case []any:
+		for _, item := range typed {
+			if text, ok := item.(string); ok {
+				warnings = append(warnings, text)
+			}
+		}
+	}
+	for _, warning := range warnings {
+		fmt.Println("Warning: " + warning)
+	}
+}
+
+func stringSliceFromAny(value any) []string {
+	switch typed := value.(type) {
+	case []string:
+		return typed
+	case []any:
+		var out []string
+		for _, item := range typed {
+			if text, ok := item.(string); ok {
+				out = append(out, text)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 func stripWrappingQuote(text string) string {

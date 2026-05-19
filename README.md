@@ -149,10 +149,13 @@ without installing Codex or OpenCode hooks.
 Use `install --hooks-only` or `install --no-binary` when you only want to write
 agent hook files and leave binary placement untouched.
 
-Both `install` and `install-bin` are idempotent. They report
-detected `uv-python-hook` binaries from the current executable, `PATH`, the
-default install location, and the selected destination; matching binaries and
-existing PATH/profile entries are not duplicated.
+Both `install` and `install-bin` are idempotent. When `--dir`/`--bin-dir` is
+not set, they update an existing `uv-python-hook.exe` found on PATH/User PATH
+before falling back to the default install location. By default they print a
+short summary. Add `--debug` to print detailed JSON, including detected
+`uv-python-hook` binaries from the current executable, process `PATH`, Windows
+User PATH, the default install location, and the selected destination; matching
+binaries and existing PATH/profile entries are not duplicated.
 
 If an older binary already exists at the selected destination, installation
 replaces it with the currently running executable and reports `action:
@@ -384,6 +387,7 @@ virtualenv env                       -> uv venv .venv
 ```powershell
 uv-python-hook install-bin
 uv-python-hook install
+uv-python-hook install --debug
 uv-python-hook install --hooks-only
 uv-python-hook uninstall
 uv-python-hook install --project --targets codex

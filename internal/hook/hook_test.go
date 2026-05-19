@@ -295,6 +295,11 @@ func TestInstallArgsCanConfigureBinaryInstall(t *testing.T) {
 	if opts.updateBinaryPath {
 		t.Fatal("expected --no-path to disable binary PATH updates")
 	}
+
+	opts = parseInstallArgs([]string{"--debug"})
+	if !opts.debug {
+		t.Fatal("expected --debug to enable detailed install output")
+	}
 }
 
 func TestInstallArgsCanDisableBinaryInstall(t *testing.T) {
@@ -324,6 +329,11 @@ func TestInstallBinaryArgsDefaultToUpdatingPath(t *testing.T) {
 	}
 	if opts.dir != "custom-bin" {
 		t.Fatalf("dir = %q, want custom-bin", opts.dir)
+	}
+
+	opts = parseInstallBinaryArgs([]string{"--debug"})
+	if !opts.debug {
+		t.Fatal("expected --debug to enable detailed install-bin output")
 	}
 }
 
@@ -396,6 +406,60 @@ func TestInstallBinaryUpdatesExistingDifferentDestination(t *testing.T) {
 	}
 	if !sameFileContent(source, destination) {
 		t.Fatal("destination was not replaced with current executable")
+	}
+}
+
+func TestDefaultInstallDestinationPrefersExistingPathBinary(t *testing.T) {
+	source := filepath.Join(t.TempDir(), binaryInstallName())
+	writeFile(t, source, "source")
+	pathDir := t.TempDir()
+	pathBinary := filepath.Join(pathDir, binaryInstallName())
+	writeFile(t, pathBinary, "old binary")
+	t.Setenv("PATH", pathDir)
+
+	installDir, destination := binaryInstallDestination("", source)
+
+	if !samePath(installDir, pathDir) {
+		t.Fatalf("installDir = %q, want %q", installDir, pathDir)
+	}
+	if !samePath(destination, pathBinary) {
+		t.Fatalf("destination = %q, want %q", destination, pathBinary)
+	}
+}
+
+func TestDetectInstalledBinariesScansProcessPath(t *testing.T) {
+	source := filepath.Join(t.TempDir(), binaryInstallName())
+	writeFile(t, source, "source")
+	pathDir := t.TempDir()
+	pathBinary := filepath.Join(pathDir, binaryInstallName())
+	writeFile(t, pathBinary, "old binary")
+	t.Setenv("PATH", pathDir)
+
+	detected := detectInstalledBinaries(source, filepath.Join(t.TempDir(), binaryInstallName()))
+
+	var found bool
+	for _, candidate := range detected {
+		kind, _ := candidate["kind"].(string)
+		path, _ := candidate["path"].(string)
+		if strings.Contains(kind, "process-path") && samePath(path, pathBinary) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("process PATH binary was not detected: %#v", detected)
+	}
+}
+
+func TestResolvedBinaryPathFallsBackToManualPathScan(t *testing.T) {
+	pathDir := t.TempDir()
+	pathBinary := filepath.Join(pathDir, binaryInstallName())
+	writeFile(t, pathBinary, "old binary")
+	t.Setenv("PATH", pathDir)
+
+	resolved := resolvedBinaryPath()
+
+	if resolved == nil || !samePath(*resolved, pathBinary) {
+		t.Fatalf("resolved = %#v, want %q", resolved, pathBinary)
 	}
 }
 

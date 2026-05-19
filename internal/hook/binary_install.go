@@ -21,12 +21,7 @@ func installBinary(opts installBinaryOptions) map[string]any {
 		}
 	}
 
-	installDir := opts.dir
-	if installDir == "" {
-		installDir = defaultBinaryInstallDir()
-	}
-	installDir = cleanPath(installDir)
-	destination := filepath.Join(installDir, binaryInstallName())
+	installDir, destination := binaryInstallDestination(opts.dir, source)
 	detectedBefore := detectInstalledBinaries(source, destination)
 	destinationExisted := fileExists(destination)
 	destinationVersionBefore := commandOutput(nil, destination, "--version")
@@ -79,7 +74,8 @@ func installBinary(opts installBinaryOptions) map[string]any {
 		"process_path_precedence_changed": false,
 		"changed":                         false,
 	}
-	if opts.updatePath && (!pathResolvesToDestinationBefore || !userPathHasDirBefore) {
+	needsPersistentPath := !userPathHasDirBefore && runtime.GOOS != "windows"
+	if opts.updatePath && (!pathResolvesToDestinationBefore || needsPersistentPath) {
 		persistentChanged, method, target, err := ensureInstallDirOnPath(installDir)
 		pathResult["persistent_path_changed"] = persistentChanged
 		pathResult["method"] = method
@@ -137,6 +133,37 @@ func currentExecutablePath() (string, error) {
 	return cleanFilePath(source), nil
 }
 
+func binaryInstallDestination(configuredDir, source string) (string, string) {
+	if configuredDir != "" {
+		installDir := cleanPath(configuredDir)
+		return installDir, filepath.Join(installDir, binaryInstallName())
+	}
+	if existing := preferredExistingBinaryPath(source); existing != "" {
+		destination := cleanFilePath(existing)
+		return filepath.Dir(destination), destination
+	}
+	installDir := cleanPath(defaultBinaryInstallDir())
+	return installDir, filepath.Join(installDir, binaryInstallName())
+}
+
+func preferredExistingBinaryPath(source string) string {
+	var candidates []string
+	if path, err := exec.LookPath("uv-python-hook"); err == nil {
+		candidates = append(candidates, path)
+	}
+	candidates = append(candidates, findNamedBinariesInPathList(os.Getenv("PATH"), []string{binaryInstallName()})...)
+	if runtime.GOOS == "windows" {
+		candidates = append(candidates, findNamedBinariesInPathList(windowsUserPath(), []string{binaryInstallName()})...)
+	}
+	for _, path := range dedupePaths(candidates) {
+		if !fileExists(path) || samePath(path, source) {
+			continue
+		}
+		return path
+	}
+	return ""
+}
+
 func detectInstalledBinaries(source, destination string) []map[string]any {
 	var candidates []map[string]any
 	addCandidate := func(kind, path string, onPath bool) {
@@ -171,7 +198,15 @@ func detectInstalledBinaries(source, destination string) []map[string]any {
 
 	addCandidate("current-executable", source, false)
 	if path, err := exec.LookPath("uv-python-hook"); err == nil {
-		addCandidate("path", path, true)
+		addCandidate("path-resolved", path, true)
+	}
+	for _, path := range findBinariesInPathList(os.Getenv("PATH")) {
+		addCandidate("process-path", path, true)
+	}
+	if runtime.GOOS == "windows" {
+		for _, path := range findBinariesInPathList(windowsUserPath()) {
+			addCandidate("user-path", path, true)
+		}
 	}
 	addCandidate("default-install", filepath.Join(defaultBinaryInstallDir(), binaryInstallName()), false)
 	addCandidate("selected-destination", destination, false)
@@ -182,6 +217,13 @@ func binaryInstallWarnings(destination, installDir string) []string {
 	var warnings []string
 	if path, err := exec.LookPath("uv-python-hook"); err == nil && !samePath(path, destination) {
 		warnings = append(warnings, "uv-python-hook on PATH resolves to "+path+" instead of installed binary "+destination+"; open a new shell or move "+installDir+" earlier in PATH.")
+	}
+	if runtime.GOOS == "windows" {
+		for _, path := range findBinariesInPathList(windowsUserPath()) {
+			if !samePath(path, destination) {
+				warnings = append(warnings, "Windows User PATH contains another uv-python-hook at "+path+"; "+installDir+" should appear earlier in User PATH.")
+			}
+		}
 	}
 	return warnings
 }
@@ -201,6 +243,56 @@ func binaryInstallName() string {
 		return "uv-python-hook.exe"
 	}
 	return "uv-python-hook"
+}
+
+func findBinariesInPathList(list string) []string {
+	return findNamedBinariesInPathList(list, binaryCandidateNames())
+}
+
+func findNamedBinariesInPathList(list string, names []string) []string {
+	var found []string
+	seen := map[string]bool{}
+	for _, dir := range filepath.SplitList(list) {
+		dir = strings.TrimSpace(dir)
+		dir = strings.Trim(dir, `"`)
+		if dir == "" {
+			continue
+		}
+		for _, name := range names {
+			path := filepath.Join(expandUserPath(dir), name)
+			if !fileExists(path) {
+				continue
+			}
+			key := normalizeComparablePath(path)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			found = append(found, path)
+		}
+	}
+	return found
+}
+
+func dedupePaths(paths []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, path := range paths {
+		key := normalizeComparablePath(path)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, path)
+	}
+	return out
+}
+
+func binaryCandidateNames() []string {
+	if runtime.GOOS == "windows" {
+		return []string{"uv-python-hook.exe", "uv-python-hook.cmd", "uv-python-hook.bat", "uv-python-hook"}
+	}
+	return []string{"uv-python-hook"}
 }
 
 func copyExecutable(source, destination string) error {
@@ -256,11 +348,15 @@ func pathListHasDir(list, dir string) bool {
 
 func resolvedBinaryPath() *string {
 	path, err := exec.LookPath("uv-python-hook")
-	if err != nil {
-		return nil
+	if err == nil {
+		path = cleanFilePath(path)
+		return &path
 	}
-	path = cleanFilePath(path)
-	return &path
+	if paths := findBinariesInPathList(os.Getenv("PATH")); len(paths) > 0 {
+		path = cleanFilePath(paths[0])
+		return &path
+	}
+	return nil
 }
 
 func pathResolvesTo(path string) bool {
