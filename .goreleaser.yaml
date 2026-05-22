@@ -54,3 +54,8 @@ changelog:
 release:
   prerelease: auto
   mode: replace
+  extra_files:
+    - glob: ./scripts/install.sh
+      name_template: install.sh
+    - glob: ./scripts/install.ps1
+      name_template: install.ps1
