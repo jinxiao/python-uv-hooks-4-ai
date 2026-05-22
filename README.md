@@ -21,11 +21,12 @@ path until the other targets are validated.
 
 Install these tools and make sure they are available on `PATH`:
 
-- Go 1.22 or newer.
 - `uv`.
 - `codex` for the tested Codex CLI path.
 
-The hook does not install Codex, OpenCode, Python, Go, or `uv`.
+Go 1.22 or newer is only required when building from source.
+
+The hook installer does not install Codex, OpenCode, Python, Go, or `uv`.
 
 The rewrite rules intentionally follow uv project boundaries:
 
@@ -35,6 +36,55 @@ The rewrite rules intentionally follow uv project boundaries:
   unchanged.
 - Python tool commands such as `ruff`, `pytest`, and `ty` use `uv run` inside
   uv projects, and `uvx`/`uv tool run` outside projects.
+
+## Install Binary
+
+Install the latest stable GitHub release into a user-level binary directory.
+
+macOS:
+
+```sh
+curl -LsSf https://github.com/jinxiao/python-uv-hooks-4-ai/releases/latest/download/install.sh | sh
+```
+
+Windows PowerShell:
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://github.com/jinxiao/python-uv-hooks-4-ai/releases/latest/download/install.ps1 | iex"
+```
+
+The installer fetches the latest stable release from GitHub, downloads the
+matching archive for your OS and CPU architecture, verifies it against
+`checksums.txt`, and installs the binary.
+
+Default install locations:
+
+- macOS: `$HOME/.local/bin/uv-python-hook`
+- Windows: `$HOME\.local\bin\uv-python-hook.exe`
+
+The installer also tries to make the command available on `PATH`:
+
+- macOS: appends a small `uv-python-hook` block to the detected shell profile
+  (`~/.zshrc`, `~/.bashrc`, or `~/.config/fish/config.fish`).
+- Windows: appends the install directory to the user `Path` environment
+  variable.
+
+Installer environment variables:
+
+- `UV_PYTHON_HOOK_INSTALL_DIR`: install to a custom directory.
+- `UV_PYTHON_HOOK_NO_MODIFY_PATH=1`: install the binary without editing PATH.
+- `UV_PYTHON_HOOK_REPO`: override the GitHub repository, useful for forks and
+  release testing.
+
+To remove the binary:
+
+```sh
+rm ~/.local/bin/uv-python-hook
+```
+
+```powershell
+Remove-Item "$HOME\.local\bin\uv-python-hook.exe"
+```
 
 ## Build
 
@@ -130,7 +180,8 @@ Releases are automated with GoReleaser and GitHub Actions.
   - `BREAKING CHANGE:` or a `!` marker, such as `feat!:` increments major.
 
 GoReleaser builds Linux, Windows, and macOS binaries for `amd64` and `arm64`.
-The release build injects the release version into the binary, so:
+It also uploads `install.sh` and `install.ps1` as release assets. The release
+build injects the release version into the binary, so:
 
 ```powershell
 uv-python-hook --version
