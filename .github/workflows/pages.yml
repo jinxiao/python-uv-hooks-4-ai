@@ -6,6 +6,8 @@ on:
       - main
     paths:
       - static/**
+      - scripts/install.sh
+      - scripts/install.ps1
       - .github/workflows/pages.yml
   workflow_dispatch:
 
@@ -32,10 +34,17 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
+      - name: Prepare Pages artifact
+        run: |
+          mkdir -p _site
+          cp -R static/. _site/
+          cp scripts/install.sh _site/install.sh
+          cp scripts/install.ps1 _site/install.ps1
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v4
         with:
-          path: static
+          path: _site
 
       - name: Deploy to GitHub Pages
         id: deployment
