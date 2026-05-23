@@ -63,7 +63,8 @@ powershell -ExecutionPolicy ByPass -c "irm https://uv-python-hook.jinxiao2010.uk
 
 The installer fetches the latest stable release from GitHub, downloads the
 matching archive for your OS and CPU architecture, verifies it against
-`checksums.txt`, and installs the binary.
+`checksums.txt`, installs the binary, and then runs `uv-python-hook install` to
+configure detected Codex/OpenCode hooks.
 
 Default install locations:
 
@@ -84,8 +85,16 @@ Installer environment variables:
 
 - `UV_PYTHON_HOOK_INSTALL_DIR`: install to a custom directory.
 - `UV_PYTHON_HOOK_NO_MODIFY_PATH=1`: install the binary without editing PATH.
+- `UV_PYTHON_HOOK_NO_INSTALL_HOOKS=1`: install the binary without running
+  `uv-python-hook install`.
 - `UV_PYTHON_HOOK_REPO`: override the GitHub repository, useful for forks and
   release testing.
+
+When using the piped Unix installer, pass skip variables to `sh`:
+
+```sh
+curl -LsSf https://uv-python-hook.jinxiao2010.uk/install.sh | UV_PYTHON_HOOK_NO_INSTALL_HOOKS=1 sh
+```
 
 To remove the binary:
 
@@ -243,6 +252,9 @@ OpenCode plugin only when `opencode` is found on `PATH`:
 uv-python-hook install
 ```
 
+The release installers run this command automatically after installing the
+binary unless `UV_PYTHON_HOOK_NO_INSTALL_HOOKS=1` is set.
+
 To force a specific target for the current user:
 
 ```powershell
@@ -324,6 +336,10 @@ Install the OpenCode plugin explicitly:
 ```powershell
 uv-python-hook install --user --targets opencode
 ```
+
+Use the explicit command when `uv-python-hook install` did not auto-detect
+OpenCode, for example when the `opencode` command is not on `PATH` in the
+installing shell.
 
 For sandboxed OpenCode environments, prefer a project-local install so the
 plugin is available from the working directory:

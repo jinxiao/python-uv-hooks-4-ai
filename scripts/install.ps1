@@ -4,6 +4,7 @@ $ProgressPreference = "SilentlyContinue"
 $Repo = if ($env:UV_PYTHON_HOOK_REPO) { $env:UV_PYTHON_HOOK_REPO } else { "jinxiao/python-uv-hooks-4-ai" }
 $InstallDir = if ($env:UV_PYTHON_HOOK_INSTALL_DIR) { $env:UV_PYTHON_HOOK_INSTALL_DIR } else { Join-Path $HOME ".local\bin" }
 $NoModifyPath = $env:UV_PYTHON_HOOK_NO_MODIFY_PATH -eq "1"
+$NoInstallHooks = $env:UV_PYTHON_HOOK_NO_INSTALL_HOOKS -eq "1"
 
 $archEnv = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
 switch ($archEnv) {
@@ -80,6 +81,16 @@ try {
     }
 
     Write-Host "Installed uv-python-hook $Version to $Destination"
+
+    if (-not $NoInstallHooks) {
+        Write-Host "Configuring uv-python-hook hooks..."
+        if (($env:Path -split ";") -notcontains $InstallDir) {
+            $env:Path = "$InstallDir;$env:Path"
+        }
+        & $Destination install
+    } else {
+        Write-Host "Skipped hook configuration because UV_PYTHON_HOOK_NO_INSTALL_HOOKS=1"
+    }
 } finally {
     Remove-Item -LiteralPath $TempDir -Recurse -Force -ErrorAction SilentlyContinue
 }
