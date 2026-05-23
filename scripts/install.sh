@@ -26,8 +26,9 @@ download() {
 }
 
 case "$(uname -s)" in
+	Linux) os="linux" ;;
 	Darwin) os="darwin" ;;
-	*) echo "error: this installer supports macOS only" >&2; exit 1 ;;
+	*) echo "error: this installer supports Linux and macOS only" >&2; exit 1 ;;
 esac
 
 case "$(uname -m)" in
