@@ -64,7 +64,7 @@
         <div class="hero-status" aria-label="Project facts">
           <div>
             <span>tested</span>
-            <strong>Windows + Codex CLI</strong>
+            <strong>Windows Codex + Linux installer</strong>
           </div>
           <div>
             <span>binary</span>
@@ -100,6 +100,13 @@
                 <span class="meta-badge is-tested">tested path</span>
               </div>
               <pre><code>powershell -ExecutionPolicy ByPass -c "irm https://uv-python-hook.jinxiao2010.uk/install.ps1 | iex"</code></pre>
+            </div>
+            <div class="command-row">
+              <div class="row-meta">
+                <strong>Linux</strong>
+                <span class="meta-badge is-tested">CI smoke test</span>
+              </div>
+              <pre><code>curl -LsSf https://uv-python-hook.jinxiao2010.uk/install.sh | sh</code></pre>
             </div>
             <div class="command-row">
               <div class="row-meta">
@@ -177,8 +184,8 @@
             <p class="eyebrow">Support status</p>
             <h2>Validated only where tested.</h2>
             <p>
-              Treat the repository as tested only for Windows with Codex CLI until
-              other targets are validated.
+              Treat the repository as tested for Windows with Codex CLI and for
+              Linux binary installation until other targets are validated.
             </p>
           </div>
 
@@ -193,6 +200,11 @@
               <strong>Windows + Codex CLI</strong>
               <p>Primary supported path for current release notes.</p>
             </div>
+            <div class="status-row is-tested">
+              <span class="meta-badge is-tested">CI smoke test</span>
+              <strong>Linux binary installer</strong>
+              <p>Installer asset selection, checksum verification, and binary placement are covered.</p>
+            </div>
             <div class="status-row">
               <span class="meta-badge">implemented, unverified</span>
               <strong>OpenCode hook installation</strong>
@@ -200,8 +212,8 @@
             </div>
             <div class="status-row">
               <span class="meta-badge">implemented, unverified</span>
-              <strong>macOS and Linux behavior</strong>
-              <p>Release assets and installers exist; validation is pending.</p>
+              <strong>macOS installer and non-Windows agent behavior</strong>
+              <p>Release assets exist; full Codex/OpenCode validation is pending.</p>
             </div>
           </div>
         </div>
