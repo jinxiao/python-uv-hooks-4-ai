@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="uv Python Agent Hooks nudges Python-related commands in AI coding agents toward uv."
+    >
+    <meta name="theme-color" content="#071013">
+    <title>uv Python Agent Hooks</title>
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="uv Python Agent Hooks home">
+        <img src="assets/mark.svg" alt="" width="40" height="40">
+        <span>Python Agent Hooks</span>
+      </a>
+      <nav class="site-nav" aria-label="Primary navigation">
+        <a href="#install">Install</a>
+        <a href="#workflow">Workflow</a>
+        <a href="#support">Status</a>
+        <a href="https://github.com/jinxiao/python-uv-hooks-4-ai">GitHub</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="hero-kicker">
+          <img src="assets/mark.svg" alt="" width="56" height="56">
+          <span>Hook-only command guidance for AI coding agents</span>
+        </div>
+        <h1>Hook Python commands into uv.</h1>
+        <p class="hero-text">
+          A small Go CLI that installs Codex and OpenCode hooks, detects
+          Python-related shell commands, and routes them toward the matching
+          <code>uv</code> workflow.
+        </p>
+        <div class="hero-actions" aria-label="Primary actions">
+          <a class="button button-primary" href="#install">View install</a>
+          <a class="button button-secondary" href="https://github.com/jinxiao/python-uv-hooks-4-ai">
+            Open GitHub
+          </a>
+        </div>
+
+        <div class="pipeline" aria-label="Command pipeline preview">
+          <div class="pipeline-node source-node">
+            <span class="node-label">agent shell</span>
+            <code>python app.py</code>
+          </div>
+          <div class="pipeline-link">
+            <span></span>
+            <img src="assets/mark.svg" alt="" width="54" height="54">
+            <span></span>
+          </div>
+          <div class="pipeline-node target-node">
+            <span class="node-label">uv path</span>
+            <code>uv run app.py</code>
+          </div>
+        </div>
+
+        <div class="hero-status" aria-label="Project facts">
+          <div>
+            <span>tested</span>
+            <strong>Windows + Codex CLI</strong>
+          </div>
+          <div>
+            <span>binary</span>
+            <strong>uv-python-hook</strong>
+          </div>
+          <div>
+            <span>runtime</span>
+            <strong>Pure Go CLI</strong>
+          </div>
+        </div>
+      </section>
+
+      <section id="install" class="product-section">
+        <div class="section-shell">
+          <div class="section-head">
+            <p class="eyebrow">Install binary</p>
+            <h2>Install the latest stable release.</h2>
+            <p>
+              The installer downloads the matching archive for your OS and CPU,
+              verifies it against <code>checksums.txt</code>, and installs the
+              binary into a user-level directory.
+            </p>
+          </div>
+
+          <div class="tool-panel" aria-label="Install commands">
+            <div class="panel-header">
+              <span>release installers</span>
+              <span>GitHub assets</span>
+            </div>
+            <div class="command-row">
+              <div class="row-meta">
+                <strong>Windows PowerShell</strong>
+                <span class="meta-badge is-tested">tested path</span>
+              </div>
+              <pre><code>powershell -ExecutionPolicy ByPass -c "irm https://github.com/jinxiao/python-uv-hooks-4-ai/releases/latest/download/install.ps1 | iex"</code></pre>
+            </div>
+            <div class="command-row">
+              <div class="row-meta">
+                <strong>macOS</strong>
+                <span class="meta-badge">implemented, unverified</span>
+              </div>
+              <pre><code>curl -LsSf https://github.com/jinxiao/python-uv-hooks-4-ai/releases/latest/download/install.sh | sh</code></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="workflow" class="product-section">
+        <div class="section-shell">
+          <div class="section-head">
+            <p class="eyebrow">Workflow</p>
+            <h2>Command rewrites stay project-aware.</h2>
+            <p>
+              uv project boundaries are respected. Poetry and PDM projects are
+              left unchanged, while Python tools use uv-native execution paths.
+            </p>
+          </div>
+
+          <div class="tool-panel" aria-label="Command rewrite examples">
+            <div class="panel-header rewrite-header">
+              <span>Original</span>
+              <span aria-hidden="true"></span>
+              <span>Codex target</span>
+            </div>
+            <div class="rewrite-row">
+              <code>python app.py</code>
+              <span>-></span>
+              <code>uv --cache-dir &lt;temp&gt;\uv-python-agent-hooks\uv-cache run app.py</code>
+            </div>
+            <div class="rewrite-row">
+              <code>pytest -q</code>
+              <span>-></span>
+              <code>uv --cache-dir &lt;temp&gt;\uv-python-agent-hooks\uv-cache run pytest -q</code>
+            </div>
+            <div class="rewrite-row">
+              <code>pip install requests</code>
+              <span>-></span>
+              <code>uv --cache-dir &lt;temp&gt;\uv-python-agent-hooks\uv-cache pip install requests</code>
+            </div>
+            <div class="rewrite-row">
+              <code>python -m venv</code>
+              <span>-></span>
+              <code>uv --cache-dir &lt;temp&gt;\uv-python-agent-hooks\uv-cache venv .venv</code>
+            </div>
+          </div>
+
+          <div class="detail-grid">
+            <article class="detail-card">
+              <span>01</span>
+              <h3>Detects uv projects</h3>
+              <p><code>pyproject.toml</code> and <code>uv.lock</code> mark uv-managed projects.</p>
+            </article>
+            <article class="detail-card">
+              <span>02</span>
+              <h3>Leaves other managers alone</h3>
+              <p>Poetry and PDM markers prevent rewriting commands in those projects.</p>
+            </article>
+            <article class="detail-card">
+              <span>03</span>
+              <h3>Keeps agent cache isolated</h3>
+              <p>Codex suggestions use a temporary uv cache by default.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="support" class="product-section">
+        <div class="section-shell">
+          <div class="section-head">
+            <p class="eyebrow">Support status</p>
+            <h2>Validated only where tested.</h2>
+            <p>
+              Treat the repository as tested only for Windows with Codex CLI until
+              other targets are validated.
+            </p>
+          </div>
+
+          <div class="tool-panel" aria-label="Support status">
+            <div class="panel-header status-header">
+              <span>Status</span>
+              <span>Target</span>
+              <span>Notes</span>
+            </div>
+            <div class="status-row is-tested">
+              <span class="meta-badge is-tested">tested</span>
+              <strong>Windows + Codex CLI</strong>
+              <p>Primary supported path for current release notes.</p>
+            </div>
+            <div class="status-row">
+              <span class="meta-badge">implemented, unverified</span>
+              <strong>OpenCode hook installation</strong>
+              <p>Available through explicit target installation.</p>
+            </div>
+            <div class="status-row">
+              <span class="meta-badge">implemented, unverified</span>
+              <strong>macOS and Linux behavior</strong>
+              <p>Release assets and installers exist; validation is pending.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="product-section">
+        <div class="section-shell">
+          <div class="section-head">
+            <p class="eyebrow">CLI reference</p>
+            <h2>Install, inspect, rewrite, remove.</h2>
+          </div>
+
+          <div class="tool-panel" aria-label="CLI reference">
+            <div class="panel-header">
+              <span>command list</span>
+              <span>uv-python-hook</span>
+            </div>
+            <pre class="command-list"><code>uv-python-hook install
+uv-python-hook uninstall
+uv-python-hook install --project --targets codex
+uv-python-hook uninstall --project --targets codex
+uv-python-hook doctor
+uv-python-hook detect-project
+uv-python-hook rewrite-command "pip install -r requirements.txt"
+uv-python-hook rewrite-command --target opencode "python app.py"</code></pre>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>uv Python Agent Hooks is a Go hook-only integration for uv-oriented AI coding workflows.</p>
+      <div>
+        <a href="https://github.com/jinxiao/python-uv-hooks-4-ai">Repository</a>
+        <a href="https://github.com/jinxiao/python-uv-hooks-4-ai/releases">Releases</a>
+        <a href="https://github.com/jinxiao/python-uv-hooks-4-ai/blob/main/README.md">README</a>
+      </div>
+    </footer>
+  </body>
+</html>
