@@ -384,3 +384,9 @@ uv-python-hook detect-project
 uv-python-hook rewrite-command "pip install -r requirements.txt"
 uv-python-hook rewrite-command --target opencode "python app.py"
 ```
+
+## License
+
+Copyright 2026 uv Python Agent Hooks contributors.
+
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE).
