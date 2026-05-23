@@ -8,14 +8,16 @@ agents toward `uv`.
 Tested:
 
 - Windows + Codex CLI.
+- Linux binary installer smoke test.
 
 Implemented but not yet verified:
 
 - OpenCode hook installation and command rewriting.
-- macOS and Linux behavior.
+- macOS installer behavior.
+- macOS and Linux Codex/OpenCode agent behavior.
 
 This repository should be treated as tested only for the Windows + Codex CLI
-path until the other targets are validated.
+path and the Linux binary installer path until the other targets are validated.
 
 ## Prerequisites
 
@@ -41,6 +43,12 @@ The rewrite rules intentionally follow uv project boundaries:
 
 Install the latest stable GitHub release into a user-level binary directory.
 
+Linux:
+
+```sh
+curl -LsSf https://uv-python-hook.jinxiao2010.uk/install.sh | sh
+```
+
 macOS:
 
 ```sh
@@ -59,12 +67,15 @@ matching archive for your OS and CPU architecture, verifies it against
 
 Default install locations:
 
+- Linux: `$HOME/.local/bin/uv-python-hook`
 - macOS: `$HOME/.local/bin/uv-python-hook`
 - Windows: `$HOME\.local\bin\uv-python-hook.exe`
 
 The installer also tries to make the command available on `PATH`:
 
 - macOS: appends a small `uv-python-hook` block to the detected shell profile
+  (`~/.zshrc`, `~/.bashrc`, or `~/.config/fish/config.fish`).
+- Linux: appends a small `uv-python-hook` block to the detected shell profile
   (`~/.zshrc`, `~/.bashrc`, or `~/.config/fish/config.fish`).
 - Windows: appends the install directory to the user `Path` environment
   variable.
@@ -195,6 +206,14 @@ Run the full Go test suite:
 
 ```powershell
 go test ./...
+```
+
+On Linux, also run the installer smoke test:
+
+```sh
+sh -n scripts/install.sh
+sh -n scripts/test-install-sh.sh
+sh scripts/test-install-sh.sh
 ```
 
 If your Go cache is not writable in the current environment, point it to a local
