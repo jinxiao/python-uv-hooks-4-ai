@@ -4,6 +4,7 @@ set -eu
 repo="${UV_PYTHON_HOOK_REPO:-jinxiao/python-uv-hooks-4-ai}"
 install_dir="${UV_PYTHON_HOOK_INSTALL_DIR:-"$HOME/.local/bin"}"
 api_url="https://api.github.com/repos/$repo/releases/latest"
+no_install_hooks="${UV_PYTHON_HOOK_NO_INSTALL_HOOKS:-}"
 
 need() {
 	if ! command -v "$1" >/dev/null 2>&1; then
@@ -133,3 +134,10 @@ if [ "${UV_PYTHON_HOOK_NO_MODIFY_PATH:-}" != "1" ]; then
 fi
 
 echo "Installed uv-python-hook $version to $install_dir/uv-python-hook"
+
+if [ "$no_install_hooks" != "1" ]; then
+	echo "Configuring uv-python-hook hooks..."
+	PATH="$install_dir:$PATH" "$install_dir/uv-python-hook" install
+else
+	echo "Skipped hook configuration because UV_PYTHON_HOOK_NO_INSTALL_HOOKS=1"
+fi

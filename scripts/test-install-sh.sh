@@ -24,16 +24,24 @@ trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 
 fixture="$tmp/fixture"
 fakebin="$tmp/bin"
-install_dir="$tmp/install"
-home_dir="$tmp/home"
-mkdir -p "$fixture/archive" "$fakebin" "$install_dir" "$home_dir"
+call_log="$tmp/hook-calls.log"
+mkdir -p "$fixture/archive" "$fakebin"
+: > "$call_log"
 
 version="9.8.7"
 asset_name="uv-python-hook_${version}_linux_${arch}.tar.gz"
 archive="$fixture/$asset_name"
 checksums="$fixture/checksums.txt"
 
-printf '%s\n' '#!/bin/sh' 'echo uv-python-hook smoke test' > "$fixture/archive/uv-python-hook"
+cat > "$fixture/archive/uv-python-hook" <<'EOF'
+#!/bin/sh
+if [ "${1:-}" = "install" ]; then
+	printf '%s\n' "install" >> "$UV_PYTHON_HOOK_TEST_CALLS"
+	printf '%s\n' '{"selected_targets":[]}'
+	exit 0
+fi
+echo uv-python-hook smoke test
+EOF
 chmod 755 "$fixture/archive/uv-python-hook"
 tar -czf "$archive" -C "$fixture/archive" uv-python-hook
 
@@ -88,22 +96,54 @@ esac
 EOF
 chmod 755 "$fakebin/curl"
 
-PATH="$fakebin:$PATH" \
-HOME="$home_dir" \
-SHELL="/bin/bash" \
-UV_PYTHON_HOOK_REPO="example/uv-python-hook" \
-UV_PYTHON_HOOK_INSTALL_DIR="$install_dir" \
-UV_PYTHON_HOOK_NO_MODIFY_PATH=1 \
-	sh "$repo_root/scripts/install.sh"
+run_installer() {
+	mode="$1"
+	run_install_dir="$tmp/install-$mode"
+	run_home_dir="$tmp/home-$mode"
+	mkdir -p "$run_install_dir" "$run_home_dir"
 
-installed="$install_dir/uv-python-hook"
-if [ ! -x "$installed" ]; then
-	echo "error: install.sh did not install an executable binary" >&2
+	if [ "$mode" = "skip-hooks" ]; then
+		PATH="$fakebin:$PATH" \
+		HOME="$run_home_dir" \
+		SHELL="/bin/bash" \
+		UV_PYTHON_HOOK_REPO="example/uv-python-hook" \
+		UV_PYTHON_HOOK_INSTALL_DIR="$run_install_dir" \
+		UV_PYTHON_HOOK_NO_MODIFY_PATH=1 \
+		UV_PYTHON_HOOK_NO_INSTALL_HOOKS=1 \
+			sh "$repo_root/scripts/install.sh"
+	else
+		PATH="$fakebin:$PATH" \
+		HOME="$run_home_dir" \
+		SHELL="/bin/bash" \
+		UV_PYTHON_HOOK_REPO="example/uv-python-hook" \
+		UV_PYTHON_HOOK_INSTALL_DIR="$run_install_dir" \
+		UV_PYTHON_HOOK_NO_MODIFY_PATH=1 \
+		UV_PYTHON_HOOK_TEST_CALLS="$call_log" \
+			sh "$repo_root/scripts/install.sh"
+	fi
+
+	installed="$run_install_dir/uv-python-hook"
+	if [ ! -x "$installed" ]; then
+		echo "error: install.sh did not install an executable binary" >&2
+		exit 1
+	fi
+
+	if [ -f "$run_home_dir/.bashrc" ]; then
+		echo "error: install.sh modified shell profile despite UV_PYTHON_HOOK_NO_MODIFY_PATH=1" >&2
+		exit 1
+	fi
+}
+
+run_installer "auto-hooks"
+if ! grep -Fx "install" "$call_log" >/dev/null 2>&1; then
+	echo "error: install.sh did not run uv-python-hook install" >&2
 	exit 1
 fi
 
-if [ -f "$home_dir/.bashrc" ]; then
-	echo "error: install.sh modified shell profile despite UV_PYTHON_HOOK_NO_MODIFY_PATH=1" >&2
+: > "$call_log"
+run_installer "skip-hooks"
+if [ -s "$call_log" ]; then
+	echo "error: install.sh ran hook install despite UV_PYTHON_HOOK_NO_INSTALL_HOOKS=1" >&2
 	exit 1
 fi
 

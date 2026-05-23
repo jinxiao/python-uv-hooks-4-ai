@@ -84,8 +84,9 @@
             <h2>Install the latest stable release.</h2>
             <p>
               The installer downloads the matching archive for your OS and CPU,
-              verifies it against <code>checksums.txt</code>, and installs the
-              binary into a user-level directory.
+              verifies it against <code>checksums.txt</code>, installs the
+              binary, and runs <code>uv-python-hook install</code> for detected
+              Codex/OpenCode hooks.
             </p>
           </div>
 
@@ -203,12 +204,12 @@
             <div class="status-row is-tested">
               <span class="meta-badge is-tested">CI smoke test</span>
               <strong>Linux binary installer</strong>
-              <p>Installer asset selection, checksum verification, and binary placement are covered.</p>
+              <p>Asset selection, checksum verification, binary placement, and hook auto-install are covered.</p>
             </div>
             <div class="status-row">
               <span class="meta-badge">implemented, unverified</span>
               <strong>OpenCode hook installation</strong>
-              <p>Available through explicit target installation.</p>
+              <p>Available through auto-detection or explicit target installation.</p>
             </div>
             <div class="status-row">
               <span class="meta-badge">implemented, unverified</span>
