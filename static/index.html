@@ -64,11 +64,11 @@
         <div class="hero-status" aria-label="Project facts">
           <div>
             <span>tested</span>
-            <strong>Windows Codex + Linux installer</strong>
+            <strong>Codex + OpenCode</strong>
           </div>
           <div>
-            <span>binary</span>
-            <strong>uv-python-hook</strong>
+            <span>default</span>
+            <strong>macOS &amp; Linux first</strong>
           </div>
           <div>
             <span>runtime</span>
@@ -93,28 +93,19 @@
           <div class="tool-panel" aria-label="Install commands">
             <div class="panel-header">
               <span>release installers</span>
-              <span>GitHub assets</span>
+              <span>macOS &amp; Linux first</span>
+            </div>
+            <div class="command-row">
+              <div class="row-meta">
+                <strong>macOS &amp; Linux</strong>
+              </div>
+              <pre><code>curl -LsSf https://uv-python-hook.jinxiao2010.uk/install.sh | sh</code></pre>
             </div>
             <div class="command-row">
               <div class="row-meta">
                 <strong>Windows PowerShell</strong>
-                <span class="meta-badge is-tested">tested path</span>
               </div>
               <pre><code>powershell -ExecutionPolicy ByPass -c "irm https://uv-python-hook.jinxiao2010.uk/install.ps1 | iex"</code></pre>
-            </div>
-            <div class="command-row">
-              <div class="row-meta">
-                <strong>Linux</strong>
-                <span class="meta-badge is-tested">CI smoke test</span>
-              </div>
-              <pre><code>curl -LsSf https://uv-python-hook.jinxiao2010.uk/install.sh | sh</code></pre>
-            </div>
-            <div class="command-row">
-              <div class="row-meta">
-                <strong>macOS</strong>
-                <span class="meta-badge">implemented, unverified</span>
-              </div>
-              <pre><code>curl -LsSf https://uv-python-hook.jinxiao2010.uk/install.sh | sh</code></pre>
             </div>
           </div>
         </div>
@@ -140,22 +131,22 @@
             <div class="rewrite-row">
               <code>python app.py</code>
               <span>-></span>
-              <code>uv --cache-dir &lt;temp&gt;\uv-python-agent-hooks\uv-cache run app.py</code>
+              <code>uv --cache-dir /tmp/uv-python-agent-hooks/uv-cache run app.py</code>
             </div>
             <div class="rewrite-row">
               <code>pytest -q</code>
               <span>-></span>
-              <code>uv --cache-dir &lt;temp&gt;\uv-python-agent-hooks\uv-cache run pytest -q</code>
+              <code>uv --cache-dir /tmp/uv-python-agent-hooks/uv-cache run pytest -q</code>
             </div>
             <div class="rewrite-row">
               <code>pip install requests</code>
               <span>-></span>
-              <code>uv --cache-dir &lt;temp&gt;\uv-python-agent-hooks\uv-cache pip install requests</code>
+              <code>uv --cache-dir /tmp/uv-python-agent-hooks/uv-cache pip install requests</code>
             </div>
             <div class="rewrite-row">
               <code>python -m venv</code>
               <span>-></span>
-              <code>uv --cache-dir &lt;temp&gt;\uv-python-agent-hooks\uv-cache venv .venv</code>
+              <code>uv --cache-dir /tmp/uv-python-agent-hooks/uv-cache venv .venv</code>
             </div>
           </div>
 
@@ -183,10 +174,10 @@
         <div class="section-shell">
           <div class="section-head">
             <p class="eyebrow">Support status</p>
-            <h2>Validated only where tested.</h2>
+            <h2>Validated tool targets.</h2>
             <p>
-              Treat the repository as tested for Windows with Codex CLI and for
-              Linux binary installation until other targets are validated.
+              Codex CLI and OpenCode are the validated tool targets. Claude
+              Code and VS Code Copilot are planned for future adapters.
             </p>
           </div>
 
@@ -198,23 +189,23 @@
             </div>
             <div class="status-row is-tested">
               <span class="meta-badge is-tested">tested</span>
-              <strong>Windows + Codex CLI</strong>
-              <p>Primary supported path for current release notes.</p>
+              <strong>Codex CLI</strong>
+              <p>Installs hooks and suggests uv commands before shell tool execution.</p>
             </div>
             <div class="status-row is-tested">
-              <span class="meta-badge is-tested">CI smoke test</span>
-              <strong>Linux binary installer</strong>
-              <p>Asset selection, checksum verification, binary placement, and hook auto-install are covered.</p>
+              <span class="meta-badge is-tested">tested</span>
+              <strong>OpenCode</strong>
+              <p>Installs the OpenCode plugin and rewrites Python-related commands directly.</p>
             </div>
             <div class="status-row">
-              <span class="meta-badge">implemented, unverified</span>
-              <strong>OpenCode hook installation</strong>
-              <p>Available through auto-detection or explicit target installation.</p>
+              <span class="meta-badge">planned</span>
+              <strong>Claude Code</strong>
+              <p>Future adapter target.</p>
             </div>
             <div class="status-row">
-              <span class="meta-badge">implemented, unverified</span>
-              <strong>macOS installer and non-Windows agent behavior</strong>
-              <p>Release assets exist; full Codex/OpenCode validation is pending.</p>
+              <span class="meta-badge">planned</span>
+              <strong>VS Code Copilot</strong>
+              <p>Future editor integration target.</p>
             </div>
           </div>
         </div>
