@@ -389,7 +389,7 @@ func TestProjectInstallIsIdempotentForClaude(t *testing.T) {
 		t.Fatalf("handlers = %#v, want one", handlers)
 	}
 	handler := asMap(handlers[0])
-	if handler["type"] != "command" || handler["command"] != claudeOwnedPretoolCommand {
+	if handler["type"] != "command" || handler["command"] != claudePretoolCommand || handler[claudeOwnerKey] != claudeOwnerValue {
 		t.Fatalf("unexpected claude hook handler: %#v", handler)
 	}
 }
@@ -430,10 +430,10 @@ func TestProjectInstallClaudeLeavesUnownedPretoolHookAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(data)
-	if strings.Contains(text, claudeOwnedPretoolCommand) {
+	if strings.Contains(text, claudeOwnerKey) {
 		t.Fatalf("owned hook should not be added when unowned hook exists: %s", text)
 	}
-	if strings.Count(text, claudeBarePretoolCommand) != 1 {
+	if strings.Count(text, claudePretoolCommand) != 1 {
 		t.Fatalf("unowned hook should be preserved without duplication: %s", text)
 	}
 }
@@ -634,8 +634,9 @@ func TestProjectUninstallClaudePreservesCoLocatedHooks(t *testing.T) {
           },
           {
             "type": "command",
-            "command": "uv-python-hook claude-pretool # uv-python-hook-owned",
-            "timeout": 10
+            "command": "uv-python-hook claude-pretool",
+            "timeout": 10,
+            "uv_python_hook_owner": "uv-python-hook"
           }
         ]
       }
@@ -765,31 +766,22 @@ func TestAutoUninstallRemovesExistingHooksEvenWhenCommandsAreMissing(t *testing.
 }
 
 func TestCodexPretoolPayloadShape(t *testing.T) {
-	payload := map[string]any{
+	code, output := runPretoolWithPayload(t, codexPretool, map[string]any{
 		"tool_name":  "Bash",
 		"tool_input": map[string]any{"command": "python app.py"},
-	}
-	encoded, _ := json.Marshal(payload)
-	oldStdin := os.Stdin
-	r, w, _ := os.Pipe()
-	_, _ = w.Write(encoded)
-	_ = w.Close()
-	os.Stdin = r
-	defer func() { os.Stdin = oldStdin }()
-
-	var b strings.Builder
-	oldStdout := os.Stdout
-	readOut, writeOut, _ := os.Pipe()
-	os.Stdout = writeOut
-	code := codexPretool("")
-	_ = writeOut.Close()
-	os.Stdout = oldStdout
-	_, _ = io.Copy(&b, readOut)
+	})
 	if code != 0 {
 		t.Fatalf("code = %d", code)
 	}
-	if !strings.Contains(b.String(), `"permissionDecision": "deny"`) {
-		t.Fatalf("unexpected output: %s", b.String())
+	hookOutput := parseHookOutput(t, output)
+	specific := asMap(hookOutput["hookSpecificOutput"])
+	if specific["permissionDecision"] != "allow" {
+		t.Fatalf("unexpected output: %s", output)
+	}
+	updatedInput := asMap(specific["updatedInput"])
+	command, _ := updatedInput["command"].(string)
+	if !strings.Contains(command, "uv --cache-dir") || !strings.Contains(command, "run app.py") {
+		t.Fatalf("updated command = %q, want uv run app.py", command)
 	}
 }
 
@@ -801,11 +793,15 @@ func TestClaudePretoolPayloadShape(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code = %d", code)
 	}
-	if !strings.Contains(output, `"permissionDecision": "deny"`) {
+	hookOutput := parseHookOutput(t, output)
+	specific := asMap(hookOutput["hookSpecificOutput"])
+	if specific["permissionDecision"] != "allow" {
 		t.Fatalf("unexpected output: %s", output)
 	}
-	if !strings.Contains(output, "uv --cache-dir") || !strings.Contains(output, "run app.py") {
-		t.Fatalf("output did not suggest uv rewrite: %s", output)
+	updatedInput := asMap(specific["updatedInput"])
+	command, _ := updatedInput["command"].(string)
+	if !strings.Contains(command, "uv --cache-dir") || !strings.Contains(command, "run app.py") {
+		t.Fatalf("updated command = %q, want uv run app.py", command)
 	}
 }
 
@@ -817,11 +813,109 @@ func TestClaudePretoolPipInstallPayloadShape(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code = %d", code)
 	}
-	if !strings.Contains(output, `"permissionDecision": "deny"`) {
+	hookOutput := parseHookOutput(t, output)
+	specific := asMap(hookOutput["hookSpecificOutput"])
+	if specific["permissionDecision"] != "allow" {
 		t.Fatalf("unexpected output: %s", output)
 	}
-	if !strings.Contains(output, "uv --cache-dir") || !strings.Contains(output, "pip install requests") {
-		t.Fatalf("output did not suggest uv pip rewrite: %s", output)
+	updatedInput := asMap(specific["updatedInput"])
+	command, _ := updatedInput["command"].(string)
+	if !strings.Contains(command, "uv --cache-dir") || !strings.Contains(command, "pip install requests") {
+		t.Fatalf("updated command = %q, want uv pip install requests", command)
+	}
+}
+
+func TestClaudePretoolVenvPayloadShape(t *testing.T) {
+	cases := []struct {
+		name        string
+		command     string
+		wantCommand string
+	}{
+		{
+			name:        "default dot venv",
+			command:     "python -m venv",
+			wantCommand: "venv .venv",
+		},
+		{
+			name:        "preserve explicit path",
+			command:     "python3 -m venv venv",
+			wantCommand: "venv venv",
+		},
+		{
+			name:        "preserve virtualenv path",
+			command:     "virtualenv env",
+			wantCommand: "venv env",
+		},
+	}
+	for _, tc := range cases {
+		code, output := runPretoolWithPayload(t, claudePretool, map[string]any{
+			"tool_name":  "Bash",
+			"tool_input": map[string]any{"command": tc.command},
+		})
+		if code != 0 {
+			t.Fatalf("%s: code = %d", tc.name, code)
+		}
+		hookOutput := parseHookOutput(t, output)
+		specific := asMap(hookOutput["hookSpecificOutput"])
+		if specific["permissionDecision"] != "allow" {
+			t.Fatalf("%s: unexpected output: %s", tc.name, output)
+		}
+		updatedInput := asMap(specific["updatedInput"])
+		command, _ := updatedInput["command"].(string)
+		if !strings.Contains(command, tc.wantCommand) {
+			t.Fatalf("%s: updated command = %q, want to contain %q", tc.name, command, tc.wantCommand)
+		}
+	}
+}
+
+func TestPretoolPreservesBashInputFields(t *testing.T) {
+	code, output := runPretoolWithPayload(t, codexPretool, map[string]any{
+		"tool_name": "Bash",
+		"tool_input": map[string]any{
+			"command":           "python app.py",
+			"description":       "Run app",
+			"timeout":           float64(120000),
+			"run_in_background": true,
+		},
+	})
+	if code != 0 {
+		t.Fatalf("code = %d", code)
+	}
+	hookOutput := parseHookOutput(t, output)
+	updatedInput := asMap(asMap(hookOutput["hookSpecificOutput"])["updatedInput"])
+	if updatedInput["description"] != "Run app" {
+		t.Fatalf("description = %#v", updatedInput["description"])
+	}
+	if updatedInput["timeout"] != float64(120000) {
+		t.Fatalf("timeout = %#v", updatedInput["timeout"])
+	}
+	if updatedInput["run_in_background"] != true {
+		t.Fatalf("run_in_background = %#v", updatedInput["run_in_background"])
+	}
+	command, _ := updatedInput["command"].(string)
+	if !strings.Contains(command, "run app.py") {
+		t.Fatalf("command = %q", command)
+	}
+}
+
+func TestPermissionRequestPretoolAllowsUpdatedInput(t *testing.T) {
+	code, output := runPretoolWithPayload(t, claudePretool, map[string]any{
+		"hook_event_name": "PermissionRequest",
+		"tool_name":       "Bash",
+		"tool_input":      map[string]any{"command": "python app.py"},
+	})
+	if code != 0 {
+		t.Fatalf("code = %d", code)
+	}
+	hookOutput := parseHookOutput(t, output)
+	decision := asMap(asMap(hookOutput["hookSpecificOutput"])["decision"])
+	if decision["behavior"] != "allow" {
+		t.Fatalf("unexpected output: %s", output)
+	}
+	updatedInput := asMap(decision["updatedInput"])
+	command, _ := updatedInput["command"].(string)
+	if !strings.Contains(command, "uv --cache-dir") || !strings.Contains(command, "run app.py") {
+		t.Fatalf("updated command = %q, want uv run app.py", command)
 	}
 }
 
@@ -889,4 +983,13 @@ func runPretoolWithPayload(t *testing.T, run func(string) int, payload map[strin
 	os.Stdout = oldStdout
 	_, _ = io.Copy(&b, readOut)
 	return code, b.String()
+}
+
+func parseHookOutput(t *testing.T, output string) map[string]any {
+	t.Helper()
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(output), &payload); err != nil {
+		t.Fatalf("cannot parse hook output %q: %v", output, err)
+	}
+	return payload
 }

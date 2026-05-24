@@ -327,14 +327,14 @@ func commandOutput(env []string, name string, args ...string) *string {
 }
 
 func codexPretool(cwd string) int {
-	return denyAndSuggestPretool(cwd, "codex")
+	return allowUpdatedInputPretool(cwd, "codex")
 }
 
 func claudePretool(cwd string) int {
-	return denyAndSuggestPretool(cwd, "claude")
+	return allowUpdatedInputPretool(cwd, "claude")
 }
 
-func denyAndSuggestPretool(cwd, target string) int {
+func allowUpdatedInputPretool(cwd, target string) int {
 	payload := readJSONStdin()
 	toolInput, _ := payload["tool_input"].(map[string]any)
 	command, _ := toolInput["command"].(string)
@@ -358,14 +358,15 @@ func denyAndSuggestPretool(cwd, target string) int {
 	if eventName == "" {
 		eventName = "PreToolUse"
 	}
-	message := "Python-related command must run through uv. Use: " + result.Command
+	updatedInput := copyStringAnyMap(toolInput)
+	updatedInput["command"] = result.Command
 	if eventName == "PermissionRequest" {
 		printJSON(map[string]any{
 			"hookSpecificOutput": map[string]any{
 				"hookEventName": "PermissionRequest",
 				"decision": map[string]any{
-					"behavior": "deny",
-					"message":  message,
+					"behavior":     "allow",
+					"updatedInput": updatedInput,
 				},
 			},
 		})
@@ -373,12 +374,20 @@ func denyAndSuggestPretool(cwd, target string) int {
 	}
 	printJSON(map[string]any{
 		"hookSpecificOutput": map[string]any{
-			"hookEventName":            "PreToolUse",
-			"permissionDecision":       "deny",
-			"permissionDecisionReason": message,
+			"hookEventName":      "PreToolUse",
+			"permissionDecision": "allow",
+			"updatedInput":       updatedInput,
 		},
 	})
 	return 0
+}
+
+func copyStringAnyMap(input map[string]any) map[string]any {
+	out := map[string]any{}
+	for key, value := range input {
+		out[key] = value
+	}
+	return out
 }
 
 func cleanPath(path string) string {
