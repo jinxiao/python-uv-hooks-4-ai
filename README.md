@@ -8,15 +8,15 @@ agents toward `uv`.
 Tested:
 
 - Codex CLI.
+- Claude Code.
 - OpenCode.
 
 Planned:
 
-- Claude Code.
 - VS Code Copilot.
 
-This repository should be treated as validated for the Codex CLI and OpenCode
-tool targets. Claude Code, VS Code Copilot, and other agent/editor targets are
+This repository should be treated as validated for the Codex CLI, Claude Code,
+and OpenCode tool targets. VS Code Copilot and other agent/editor targets are
 planned but not yet supported.
 
 ## Prerequisites
@@ -25,6 +25,7 @@ Install these tools and make sure they are available on `PATH`:
 
 - `uv`.
 - `codex` for Codex CLI hooks.
+- `claude` for Claude Code hooks.
 - `opencode` for OpenCode hooks.
 
 Go 1.22 or newer is only required when building from source.
@@ -255,7 +256,8 @@ uv-python-hook detect-project
 ## Usage With Codex CLI
 
 By default, `install` uses user scope and auto-detects installed targets. It
-installs the Codex hook only when `codex` is found on `PATH`, and installs the
+installs the Codex hook only when `codex` is found on `PATH`, installs the
+Claude Code hook only when `claude` is found on `PATH`, and installs the
 OpenCode plugin only when `opencode` is found on `PATH`:
 
 ```sh
@@ -288,6 +290,18 @@ Project installs write Codex hook entries to:
 
 ```text
 ./.codex/hooks.json
+```
+
+Claude Code user installs write hook entries to:
+
+```text
+$HOME/.claude/settings.json
+```
+
+Claude Code project installs write hook entries to:
+
+```text
+./.claude/settings.json
 ```
 
 The Codex hook runs before shell tool execution. When it sees a Python-related
@@ -337,6 +351,33 @@ For a project-local install:
 
 ```sh
 uv-python-hook uninstall --project --targets codex
+```
+
+## Usage With Claude Code
+
+Install the Claude Code hook explicitly:
+
+```sh
+uv-python-hook install --user --targets claude
+```
+
+For a project-local install, run this inside the target repository:
+
+```sh
+uv-python-hook install --project --targets claude
+```
+
+Claude Code installs a `PreToolUse` hook for Bash commands. When the hook sees a
+Python-related command, it denies the original command and suggests the
+equivalent `uv` command. Like Codex, Claude Code suggestions force a temporary
+uv cache by default, so standalone tools use `uv tool run` instead of the `uvx`
+shorthand.
+
+To remove the Claude Code hook:
+
+```sh
+uv-python-hook uninstall --user --targets claude
+uv-python-hook uninstall --project --targets claude
 ```
 
 ## Usage With OpenCode
@@ -424,6 +465,8 @@ uv-python-hook install
 uv-python-hook uninstall
 uv-python-hook install --project --targets codex
 uv-python-hook uninstall --project --targets codex
+uv-python-hook install --project --targets claude
+uv-python-hook uninstall --project --targets claude
 uv-python-hook doctor
 uv-python-hook detect-project
 uv-python-hook rewrite-command "pip install -r requirements.txt"

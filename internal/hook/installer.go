@@ -12,6 +12,12 @@ var commandAvailable = func(name string) bool {
 	return which(name) != nil
 }
 
+const (
+	claudePretoolCommand = "uv-python-hook claude-pretool"
+	claudeOwnerKey       = "uv_python_hook_owner"
+	claudeOwnerValue     = "uv-python-hook"
+)
+
 //go:embed assets/opencode-plugin.js
 var opencodePluginSource string
 
@@ -31,6 +37,9 @@ func (i installer) install(targets []string) map[string]any {
 	targetMap := map[string]any{}
 	if contains(targets, "codex") {
 		targetMap["codex"] = i.installCodex()
+	}
+	if contains(targets, "claude") {
+		targetMap["claude"] = i.installClaude()
 	}
 	if contains(targets, "opencode") {
 		targetMap["opencode"] = i.installOpenCode()
@@ -59,6 +68,13 @@ func (i installer) uninstall(targets []string) map[string]any {
 			removed = append(removed, i.codexHooksPath())
 		}
 	}
+	if contains(targets, "claude") {
+		result := i.uninstallClaude()
+		targetMap["claude"] = result
+		if changed, _ := result["changed"].(bool); changed {
+			removed = append(removed, i.claudeSettingsPath())
+		}
+	}
 	if contains(targets, "opencode") {
 		result := i.uninstallOpenCode()
 		targetMap["opencode"] = result
@@ -80,6 +96,9 @@ func (i installer) autoInstallTargets() []string {
 	if commandAvailable("codex") {
 		targets = append(targets, "codex")
 	}
+	if commandAvailable("claude") {
+		targets = append(targets, "claude")
+	}
 	if commandAvailable("opencode") {
 		targets = append(targets, "opencode")
 	}
@@ -90,6 +109,9 @@ func (i installer) autoUninstallTargets() []string {
 	targets := []string{}
 	if commandAvailable("codex") || fileExists(i.codexHooksPath()) {
 		targets = append(targets, "codex")
+	}
+	if commandAvailable("claude") || fileExists(i.claudeSettingsPath()) {
+		targets = append(targets, "claude")
 	}
 	if commandAvailable("opencode") || fileExists(i.opencodePluginPath()) {
 		targets = append(targets, "opencode")
@@ -141,14 +163,90 @@ func (i installer) uninstallOpenCode() map[string]any {
 	return result
 }
 
+func (i installer) uninstallClaude() map[string]any {
+	path := i.claudeSettingsPath()
+	result := map[string]any{
+		"settings_json": path,
+		"exists":        fileExists(path),
+		"changed":       false,
+		"removed_hooks": 0,
+	}
+	if !fileExists(path) {
+		return result
+	}
+	data, err := readJSONFile(path)
+	if err != nil {
+		result["error"] = err.Error()
+		return result
+	}
+	removed := removeClaudeHooks(data)
+	result["removed_hooks"] = removed
+	if removed == 0 {
+		return result
+	}
+	writeJSONFile(path, data)
+	result["changed"] = true
+	return result
+}
+
 func (i installer) installState() map[string]any {
 	codexHooks := i.codexHooksPath()
+	claudeSettings := i.claudeSettingsPath()
 	opencodePlugin := i.opencodePluginPath()
 	return map[string]any{
+		"claude_settings":        claudeSettings,
+		"claude_settings_exists": fileExists(claudeSettings),
 		"codex_hooks":            codexHooks,
 		"codex_hooks_exists":     fileExists(codexHooks),
 		"opencode_plugin":        opencodePlugin,
 		"opencode_plugin_exists": fileExists(opencodePlugin),
+	}
+}
+
+func (i installer) installClaude() map[string]any {
+	path := i.claudeSettingsPath()
+	warnings := []string{}
+	ensureParent(path)
+	data, err := readJSONFile(path)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			backupInvalidJSON(path)
+		}
+		data = map[string]any{"hooks": map[string]any{}}
+	}
+	hooks, ok := data["hooks"].(map[string]any)
+	if !ok {
+		hooks = map[string]any{}
+		data["hooks"] = hooks
+	}
+
+	hasOwned, hasBare := findClaudePretoolHooks(hooks)
+	changed := false
+	if !hasOwned && !hasBare {
+		entries := asSlice(hooks["PreToolUse"])
+		entries = append(entries, map[string]any{
+			"matcher": "Bash",
+			"hooks": []any{
+				map[string]any{
+					"type":         "command",
+					"command":      claudePretoolCommand,
+					"timeout":      10,
+					claudeOwnerKey: claudeOwnerValue,
+				},
+			},
+		})
+		hooks["PreToolUse"] = entries
+		writeJSONFile(path, data)
+		changed = true
+	}
+	if !hasOwned && hasBare {
+		warnings = append(warnings, "Existing unowned Claude Code uv-python-hook pretool hook was left unchanged; not adding a duplicate owned hook.")
+	}
+	return map[string]any{
+		"settings_json": path,
+		"mode":          "deny-and-suggest",
+		"changed":       changed,
+		"warnings":      warnings,
 	}
 }
 
@@ -215,11 +313,93 @@ func (i installer) codexHooksPath() string {
 	return filepath.Join(homeDir(), ".codex", "hooks.json")
 }
 
+func (i installer) claudeSettingsPath() string {
+	if i.scope == "project" {
+		return filepath.Join(i.cwd, ".claude", "settings.json")
+	}
+	return filepath.Join(homeDir(), ".claude", "settings.json")
+}
+
 func (i installer) opencodePluginPath() string {
 	if i.scope == "project" {
 		return filepath.Join(i.cwd, ".opencode", "plugins", "uv-python-agent-hooks.js")
 	}
 	return filepath.Join(homeDir(), ".config", "opencode", "plugins", "uv-python-agent-hooks.js")
+}
+
+func removeClaudeHooks(data map[string]any) int {
+	hooks := asMap(data["hooks"])
+	if hooks == nil {
+		return 0
+	}
+	entries := asSlice(hooks["PreToolUse"])
+	if len(entries) == 0 {
+		return 0
+	}
+	removed := 0
+	var kept []any
+	for _, entry := range entries {
+		entryMap := asMap(entry)
+		entryHooks := asSlice(entryMap["hooks"])
+		if entryMap == nil || len(entryHooks) == 0 {
+			kept = append(kept, entry)
+			continue
+		}
+
+		var keptEntryHooks []any
+		for _, hook := range entryHooks {
+			if isOurClaudeHook(hook) {
+				removed++
+			} else {
+				keptEntryHooks = append(keptEntryHooks, hook)
+			}
+		}
+		if len(keptEntryHooks) > 0 {
+			entryMap["hooks"] = keptEntryHooks
+			kept = append(kept, entryMap)
+		}
+	}
+	if len(kept) == 0 {
+		delete(hooks, "PreToolUse")
+	} else {
+		hooks["PreToolUse"] = kept
+	}
+	return removed
+}
+
+func findClaudePretoolHooks(hooks map[string]any) (bool, bool) {
+	var hasOwned bool
+	var hasBare bool
+	for _, entry := range asSlice(hooks["PreToolUse"]) {
+		entryMap := asMap(entry)
+		if entryMap == nil {
+			continue
+		}
+		for _, hook := range asSlice(entryMap["hooks"]) {
+			hookMap := asMap(hook)
+			command, _ := hookMap["command"].(string)
+			if command != claudePretoolCommand {
+				continue
+			}
+			if isOwnedClaudeHookMap(hookMap) {
+				hasOwned = true
+			} else {
+				hasBare = true
+			}
+		}
+	}
+	return hasOwned, hasBare
+}
+
+func isOurClaudeHook(hook any) bool {
+	hookMap := asMap(hook)
+	command, _ := hookMap["command"].(string)
+	return command == claudePretoolCommand && isOwnedClaudeHookMap(hookMap)
+}
+
+func isOwnedClaudeHookMap(hook map[string]any) bool {
+	owner, _ := hook[claudeOwnerKey].(string)
+	return owner == claudeOwnerValue
 }
 
 func removeCodexHooks(data map[string]any) int {

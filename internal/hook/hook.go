@@ -16,6 +16,7 @@ const (
 	hookCacheEnv        = "UV_PYTHON_AGENT_HOOKS_CACHE_DIR"
 	hookCacheModeEnv    = "UV_PYTHON_AGENT_HOOKS_CACHE_MODE"
 	hookForceDotVenvEnv = "UV_PYTHON_AGENT_HOOKS_FORCE_DOT_VENV"
+	hookVerboseEnv      = "UV_PYTHON_AGENT_HOOKS_VERBOSE"
 )
 
 type projectDetection struct {
@@ -105,6 +106,9 @@ func Run(args []string) int {
 	case "codex-pretool":
 		cwd := parseValueFlag(args[1:], "--cwd")
 		return codexPretool(cwd)
+	case "claude-pretool":
+		cwd := parseValueFlag(args[1:], "--cwd")
+		return claudePretool(cwd)
 	default:
 		printUsage()
 		return 2
@@ -112,7 +116,7 @@ func Run(args []string) int {
 }
 
 func printUsage() {
-	_, _ = fmt.Fprintln(os.Stderr, "usage: uv-python-hook <install|uninstall|doctor|detect-project|rewrite-command|codex-pretool|version|--version>")
+	_, _ = fmt.Fprintln(os.Stderr, "usage: uv-python-hook <install|uninstall|doctor|detect-project|rewrite-command|codex-pretool|claude-pretool|version|--version>")
 }
 
 type installOptions struct {
@@ -253,6 +257,15 @@ func shouldForceDotVenv() bool {
 	}
 }
 
+func shouldVerboseHooks() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(hookVerboseEnv))) {
+	case "0", "false", "no", "off", "disabled", "disable":
+		return false
+	default:
+		return true
+	}
+}
+
 func cacheEnv() []string {
 	env := os.Environ()
 	cacheDir := os.Getenv(hookCacheEnv)
@@ -293,6 +306,7 @@ func doctor(cwd string) map[string]any {
 			"path":      uvPythonPath,
 			"available": uvPythonPath != nil,
 		},
+		"claude":          which("claude"),
 		"codex":           which("codex"),
 		"opencode":        which("opencode"),
 		"project":         detectProject(cwd),
@@ -323,6 +337,14 @@ func commandOutput(env []string, name string, args ...string) *string {
 }
 
 func codexPretool(cwd string) int {
+	return allowUpdatedInputPretool(cwd, "codex")
+}
+
+func claudePretool(cwd string) int {
+	return allowUpdatedInputPretool(cwd, "claude")
+}
+
+func allowUpdatedInputPretool(cwd, target string) int {
 	payload := readJSONStdin()
 	toolInput, _ := payload["tool_input"].(map[string]any)
 	command, _ := toolInput["command"].(string)
@@ -337,7 +359,7 @@ func codexPretool(cwd string) int {
 	result := rewriteCommandWithOptions(rewriteOptions{
 		command: command,
 		cwd:     cwd,
-		target:  "codex",
+		target:  target,
 	})
 	if !result.Changed {
 		return 0
@@ -346,27 +368,47 @@ func codexPretool(cwd string) int {
 	if eventName == "" {
 		eventName = "PreToolUse"
 	}
-	message := "Python-related command must run through uv. Use: " + result.Command
+	updatedInput := copyStringAnyMap(toolInput)
+	updatedInput["command"] = result.Command
+	message := "Rewrote Python command through uv: " + result.Command
+	verbose := shouldVerboseHooks()
 	if eventName == "PermissionRequest" {
-		printJSON(map[string]any{
+		decision := map[string]any{
+			"behavior": "allow",
+		}
+		response := map[string]any{
 			"hookSpecificOutput": map[string]any{
 				"hookEventName": "PermissionRequest",
-				"decision": map[string]any{
-					"behavior": "deny",
-					"message":  message,
-				},
+				"decision":      decision,
 			},
-		})
+		}
+		if verbose {
+			response["systemMessage"] = message
+		}
+		printJSON(response)
 		return 0
 	}
-	printJSON(map[string]any{
-		"hookSpecificOutput": map[string]any{
-			"hookEventName":            "PreToolUse",
-			"permissionDecision":       "deny",
-			"permissionDecisionReason": message,
-		},
-	})
+	output := map[string]any{
+		"hookEventName":      "PreToolUse",
+		"permissionDecision": "allow",
+		"updatedInput":       updatedInput,
+	}
+	response := map[string]any{
+		"hookSpecificOutput": output,
+	}
+	if verbose {
+		response["systemMessage"] = message
+	}
+	printJSON(response)
 	return 0
+}
+
+func copyStringAnyMap(input map[string]any) map[string]any {
+	out := map[string]any{}
+	for key, value := range input {
+		out[key] = value
+	}
+	return out
 }
 
 func cleanPath(path string) string {
