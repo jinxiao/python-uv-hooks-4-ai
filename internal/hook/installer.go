@@ -13,9 +13,9 @@ var commandAvailable = func(name string) bool {
 }
 
 const (
-	claudeBarePretoolCommand  = "uv-python-hook claude-pretool"
-	claudeOwnedHookMarker     = "# uv-python-hook-owned"
-	claudeOwnedPretoolCommand = claudeBarePretoolCommand + " " + claudeOwnedHookMarker
+	claudePretoolCommand = "uv-python-hook claude-pretool"
+	claudeOwnerKey       = "uv_python_hook_owner"
+	claudeOwnerValue     = "uv-python-hook"
 )
 
 //go:embed assets/opencode-plugin.js
@@ -228,9 +228,10 @@ func (i installer) installClaude() map[string]any {
 			"matcher": "Bash",
 			"hooks": []any{
 				map[string]any{
-					"type":    "command",
-					"command": claudeOwnedPretoolCommand,
-					"timeout": 10,
+					"type":         "command",
+					"command":      claudePretoolCommand,
+					"timeout":      10,
+					claudeOwnerKey: claudeOwnerValue,
 				},
 			},
 		})
@@ -377,10 +378,12 @@ func findClaudePretoolHooks(hooks map[string]any) (bool, bool) {
 		for _, hook := range asSlice(entryMap["hooks"]) {
 			hookMap := asMap(hook)
 			command, _ := hookMap["command"].(string)
-			switch command {
-			case claudeOwnedPretoolCommand:
+			if command != claudePretoolCommand {
+				continue
+			}
+			if isOwnedClaudeHookMap(hookMap) {
 				hasOwned = true
-			case claudeBarePretoolCommand:
+			} else {
 				hasBare = true
 			}
 		}
@@ -391,7 +394,12 @@ func findClaudePretoolHooks(hooks map[string]any) (bool, bool) {
 func isOurClaudeHook(hook any) bool {
 	hookMap := asMap(hook)
 	command, _ := hookMap["command"].(string)
-	return command == claudeOwnedPretoolCommand
+	return command == claudePretoolCommand && isOwnedClaudeHookMap(hookMap)
+}
+
+func isOwnedClaudeHookMap(hook map[string]any) bool {
+	owner, _ := hook[claudeOwnerKey].(string)
+	return owner == claudeOwnerValue
 }
 
 func removeCodexHooks(data map[string]any) int {
