@@ -898,6 +898,48 @@ func TestPretoolPreservesBashInputFields(t *testing.T) {
 	}
 }
 
+func TestPretoolVerboseDefaultIncludesRewriteReason(t *testing.T) {
+	code, output := runPretoolWithPayload(t, codexPretool, map[string]any{
+		"tool_name":  "Bash",
+		"tool_input": map[string]any{"command": "python app.py"},
+	})
+	if code != 0 {
+		t.Fatalf("code = %d", code)
+	}
+	hookOutput := parseHookOutput(t, output)
+	specific := asMap(hookOutput["hookSpecificOutput"])
+	reason, _ := specific["permissionDecisionReason"].(string)
+	if !strings.Contains(reason, "Rewrote Python command through uv:") || !strings.Contains(reason, "run app.py") {
+		t.Fatalf("permissionDecisionReason = %q", reason)
+	}
+	updatedInput := asMap(specific["updatedInput"])
+	command, _ := updatedInput["command"].(string)
+	if !strings.Contains(reason, command) {
+		t.Fatalf("reason %q does not include updated command %q", reason, command)
+	}
+}
+
+func TestPretoolVerboseCanBeDisabled(t *testing.T) {
+	t.Setenv(hookVerboseEnv, "off")
+	code, output := runPretoolWithPayload(t, claudePretool, map[string]any{
+		"tool_name":  "Bash",
+		"tool_input": map[string]any{"command": "python app.py"},
+	})
+	if code != 0 {
+		t.Fatalf("code = %d", code)
+	}
+	hookOutput := parseHookOutput(t, output)
+	specific := asMap(hookOutput["hookSpecificOutput"])
+	if _, ok := specific["permissionDecisionReason"]; ok {
+		t.Fatalf("permissionDecisionReason should be omitted when verbose is disabled: %#v", specific)
+	}
+	updatedInput := asMap(specific["updatedInput"])
+	command, _ := updatedInput["command"].(string)
+	if !strings.Contains(command, "run app.py") {
+		t.Fatalf("command = %q", command)
+	}
+}
+
 func TestPermissionRequestPretoolAllowsUpdatedInput(t *testing.T) {
 	code, output := runPretoolWithPayload(t, claudePretool, map[string]any{
 		"hook_event_name": "PermissionRequest",
@@ -912,10 +954,36 @@ func TestPermissionRequestPretoolAllowsUpdatedInput(t *testing.T) {
 	if decision["behavior"] != "allow" {
 		t.Fatalf("unexpected output: %s", output)
 	}
+	message, _ := decision["message"].(string)
+	if !strings.Contains(message, "Rewrote Python command through uv:") || !strings.Contains(message, "run app.py") {
+		t.Fatalf("message = %q", message)
+	}
 	updatedInput := asMap(decision["updatedInput"])
 	command, _ := updatedInput["command"].(string)
 	if !strings.Contains(command, "uv --cache-dir") || !strings.Contains(command, "run app.py") {
 		t.Fatalf("updated command = %q, want uv run app.py", command)
+	}
+}
+
+func TestPermissionRequestVerboseCanBeDisabled(t *testing.T) {
+	t.Setenv(hookVerboseEnv, "false")
+	code, output := runPretoolWithPayload(t, claudePretool, map[string]any{
+		"hook_event_name": "PermissionRequest",
+		"tool_name":       "Bash",
+		"tool_input":      map[string]any{"command": "python app.py"},
+	})
+	if code != 0 {
+		t.Fatalf("code = %d", code)
+	}
+	hookOutput := parseHookOutput(t, output)
+	decision := asMap(asMap(hookOutput["hookSpecificOutput"])["decision"])
+	if _, ok := decision["message"]; ok {
+		t.Fatalf("message should be omitted when verbose is disabled: %#v", decision)
+	}
+	updatedInput := asMap(decision["updatedInput"])
+	command, _ := updatedInput["command"].(string)
+	if !strings.Contains(command, "run app.py") {
+		t.Fatalf("command = %q", command)
 	}
 }
 

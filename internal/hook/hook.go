@@ -16,6 +16,7 @@ const (
 	hookCacheEnv        = "UV_PYTHON_AGENT_HOOKS_CACHE_DIR"
 	hookCacheModeEnv    = "UV_PYTHON_AGENT_HOOKS_CACHE_MODE"
 	hookForceDotVenvEnv = "UV_PYTHON_AGENT_HOOKS_FORCE_DOT_VENV"
+	hookVerboseEnv      = "UV_PYTHON_AGENT_HOOKS_VERBOSE"
 )
 
 type projectDetection struct {
@@ -256,6 +257,15 @@ func shouldForceDotVenv() bool {
 	}
 }
 
+func shouldVerboseHooks() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(hookVerboseEnv))) {
+	case "0", "false", "no", "off", "disabled", "disable":
+		return false
+	default:
+		return true
+	}
+}
+
 func cacheEnv() []string {
 	env := os.Environ()
 	cacheDir := os.Getenv(hookCacheEnv)
@@ -360,24 +370,34 @@ func allowUpdatedInputPretool(cwd, target string) int {
 	}
 	updatedInput := copyStringAnyMap(toolInput)
 	updatedInput["command"] = result.Command
+	message := "Rewrote Python command through uv: " + result.Command
+	verbose := shouldVerboseHooks()
 	if eventName == "PermissionRequest" {
+		decision := map[string]any{
+			"behavior":     "allow",
+			"updatedInput": updatedInput,
+		}
+		if verbose {
+			decision["message"] = message
+		}
 		printJSON(map[string]any{
 			"hookSpecificOutput": map[string]any{
 				"hookEventName": "PermissionRequest",
-				"decision": map[string]any{
-					"behavior":     "allow",
-					"updatedInput": updatedInput,
-				},
+				"decision":      decision,
 			},
 		})
 		return 0
 	}
+	output := map[string]any{
+		"hookEventName":      "PreToolUse",
+		"permissionDecision": "allow",
+		"updatedInput":       updatedInput,
+	}
+	if verbose {
+		output["permissionDecisionReason"] = message
+	}
 	printJSON(map[string]any{
-		"hookSpecificOutput": map[string]any{
-			"hookEventName":      "PreToolUse",
-			"permissionDecision": "allow",
-			"updatedInput":       updatedInput,
-		},
+		"hookSpecificOutput": output,
 	})
 	return 0
 }
