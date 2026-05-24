@@ -105,6 +105,9 @@ func Run(args []string) int {
 	case "codex-pretool":
 		cwd := parseValueFlag(args[1:], "--cwd")
 		return codexPretool(cwd)
+	case "claude-pretool":
+		cwd := parseValueFlag(args[1:], "--cwd")
+		return claudePretool(cwd)
 	default:
 		printUsage()
 		return 2
@@ -112,7 +115,7 @@ func Run(args []string) int {
 }
 
 func printUsage() {
-	_, _ = fmt.Fprintln(os.Stderr, "usage: uv-python-hook <install|uninstall|doctor|detect-project|rewrite-command|codex-pretool|version|--version>")
+	_, _ = fmt.Fprintln(os.Stderr, "usage: uv-python-hook <install|uninstall|doctor|detect-project|rewrite-command|codex-pretool|claude-pretool|version|--version>")
 }
 
 type installOptions struct {
@@ -293,6 +296,7 @@ func doctor(cwd string) map[string]any {
 			"path":      uvPythonPath,
 			"available": uvPythonPath != nil,
 		},
+		"claude":          which("claude"),
 		"codex":           which("codex"),
 		"opencode":        which("opencode"),
 		"project":         detectProject(cwd),
@@ -323,6 +327,14 @@ func commandOutput(env []string, name string, args ...string) *string {
 }
 
 func codexPretool(cwd string) int {
+	return denyAndSuggestPretool(cwd, "codex")
+}
+
+func claudePretool(cwd string) int {
+	return denyAndSuggestPretool(cwd, "claude")
+}
+
+func denyAndSuggestPretool(cwd, target string) int {
 	payload := readJSONStdin()
 	toolInput, _ := payload["tool_input"].(map[string]any)
 	command, _ := toolInput["command"].(string)
@@ -337,7 +349,7 @@ func codexPretool(cwd string) int {
 	result := rewriteCommandWithOptions(rewriteOptions{
 		command: command,
 		cwd:     cwd,
-		target:  "codex",
+		target:  target,
 	})
 	if !result.Changed {
 		return 0
