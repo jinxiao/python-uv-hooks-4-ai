@@ -908,14 +908,14 @@ func TestPretoolVerboseDefaultIncludesRewriteReason(t *testing.T) {
 	}
 	hookOutput := parseHookOutput(t, output)
 	specific := asMap(hookOutput["hookSpecificOutput"])
-	reason, _ := specific["permissionDecisionReason"].(string)
-	if !strings.Contains(reason, "Rewrote Python command through uv:") || !strings.Contains(reason, "run app.py") {
-		t.Fatalf("permissionDecisionReason = %q", reason)
+	message, _ := hookOutput["systemMessage"].(string)
+	if !strings.Contains(message, "Rewrote Python command through uv:") || !strings.Contains(message, "run app.py") {
+		t.Fatalf("systemMessage = %q", message)
 	}
 	updatedInput := asMap(specific["updatedInput"])
 	command, _ := updatedInput["command"].(string)
-	if !strings.Contains(reason, command) {
-		t.Fatalf("reason %q does not include updated command %q", reason, command)
+	if !strings.Contains(message, command) {
+		t.Fatalf("systemMessage %q does not include updated command %q", message, command)
 	}
 }
 
@@ -929,10 +929,10 @@ func TestPretoolVerboseCanBeDisabled(t *testing.T) {
 		t.Fatalf("code = %d", code)
 	}
 	hookOutput := parseHookOutput(t, output)
-	specific := asMap(hookOutput["hookSpecificOutput"])
-	if _, ok := specific["permissionDecisionReason"]; ok {
-		t.Fatalf("permissionDecisionReason should be omitted when verbose is disabled: %#v", specific)
+	if _, ok := hookOutput["systemMessage"]; ok {
+		t.Fatalf("systemMessage should be omitted when verbose is disabled: %#v", hookOutput)
 	}
+	specific := asMap(hookOutput["hookSpecificOutput"])
 	updatedInput := asMap(specific["updatedInput"])
 	command, _ := updatedInput["command"].(string)
 	if !strings.Contains(command, "run app.py") {
@@ -954,14 +954,15 @@ func TestPermissionRequestPretoolAllowsUpdatedInput(t *testing.T) {
 	if decision["behavior"] != "allow" {
 		t.Fatalf("unexpected output: %s", output)
 	}
-	message, _ := decision["message"].(string)
+	message, _ := hookOutput["systemMessage"].(string)
 	if !strings.Contains(message, "Rewrote Python command through uv:") || !strings.Contains(message, "run app.py") {
-		t.Fatalf("message = %q", message)
+		t.Fatalf("systemMessage = %q", message)
 	}
-	updatedInput := asMap(decision["updatedInput"])
-	command, _ := updatedInput["command"].(string)
-	if !strings.Contains(command, "uv --cache-dir") || !strings.Contains(command, "run app.py") {
-		t.Fatalf("updated command = %q, want uv run app.py", command)
+	if _, ok := decision["updatedInput"]; ok {
+		t.Fatalf("PermissionRequest must not include updatedInput: %#v", decision)
+	}
+	if _, ok := decision["message"]; ok {
+		t.Fatalf("PermissionRequest decision should not include message: %#v", decision)
 	}
 }
 
@@ -977,13 +978,14 @@ func TestPermissionRequestVerboseCanBeDisabled(t *testing.T) {
 	}
 	hookOutput := parseHookOutput(t, output)
 	decision := asMap(asMap(hookOutput["hookSpecificOutput"])["decision"])
-	if _, ok := decision["message"]; ok {
-		t.Fatalf("message should be omitted when verbose is disabled: %#v", decision)
+	if _, ok := hookOutput["systemMessage"]; ok {
+		t.Fatalf("systemMessage should be omitted when verbose is disabled: %#v", hookOutput)
 	}
-	updatedInput := asMap(decision["updatedInput"])
-	command, _ := updatedInput["command"].(string)
-	if !strings.Contains(command, "run app.py") {
-		t.Fatalf("command = %q", command)
+	if _, ok := decision["updatedInput"]; ok {
+		t.Fatalf("PermissionRequest must not include updatedInput: %#v", decision)
+	}
+	if _, ok := decision["message"]; ok {
+		t.Fatalf("PermissionRequest decision should not include message: %#v", decision)
 	}
 }
 

@@ -374,18 +374,18 @@ func allowUpdatedInputPretool(cwd, target string) int {
 	verbose := shouldVerboseHooks()
 	if eventName == "PermissionRequest" {
 		decision := map[string]any{
-			"behavior":     "allow",
-			"updatedInput": updatedInput,
+			"behavior": "allow",
 		}
-		if verbose {
-			decision["message"] = message
-		}
-		printJSON(map[string]any{
+		response := map[string]any{
 			"hookSpecificOutput": map[string]any{
 				"hookEventName": "PermissionRequest",
 				"decision":      decision,
 			},
-		})
+		}
+		if verbose {
+			response["systemMessage"] = message
+		}
+		printJSON(response)
 		return 0
 	}
 	output := map[string]any{
@@ -393,12 +393,13 @@ func allowUpdatedInputPretool(cwd, target string) int {
 		"permissionDecision": "allow",
 		"updatedInput":       updatedInput,
 	}
-	if verbose {
-		output["permissionDecisionReason"] = message
-	}
-	printJSON(map[string]any{
+	response := map[string]any{
 		"hookSpecificOutput": output,
-	})
+	}
+	if verbose {
+		response["systemMessage"] = message
+	}
+	printJSON(response)
 	return 0
 }
 
