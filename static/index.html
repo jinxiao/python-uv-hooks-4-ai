@@ -64,7 +64,7 @@
         <div class="hero-status" aria-label="Project facts">
           <div>
             <span>tested</span>
-            <strong>Codex + OpenCode</strong>
+            <strong>Codex + Claude + OpenCode</strong>
           </div>
           <div>
             <span>default</span>
@@ -176,8 +176,8 @@
             <p class="eyebrow">Support status</p>
             <h2>Validated tool targets.</h2>
             <p>
-              Codex CLI and OpenCode are the validated tool targets. Claude
-              Code and VS Code Copilot are planned for future adapters.
+              Codex CLI, Claude Code, and OpenCode are the validated tool
+              targets. VS Code Copilot is planned for a future adapter.
             </p>
           </div>
 
@@ -192,15 +192,15 @@
               <strong>Codex CLI</strong>
               <p>Installs hooks and suggests uv commands before shell tool execution.</p>
             </div>
+            <div class="status-row">
+              <span class="meta-badge is-tested">tested</span>
+              <strong>Claude Code</strong>
+              <p>Installs a Bash PreToolUse hook and suggests uv commands before execution.</p>
+            </div>
             <div class="status-row is-tested">
               <span class="meta-badge is-tested">tested</span>
               <strong>OpenCode</strong>
               <p>Installs the OpenCode plugin and rewrites Python-related commands directly.</p>
-            </div>
-            <div class="status-row">
-              <span class="meta-badge">planned</span>
-              <strong>Claude Code</strong>
-              <p>Future adapter target.</p>
             </div>
             <div class="status-row">
               <span class="meta-badge">planned</span>
@@ -227,6 +227,8 @@
 uv-python-hook uninstall
 uv-python-hook install --project --targets codex
 uv-python-hook uninstall --project --targets codex
+uv-python-hook install --project --targets claude
+uv-python-hook uninstall --project --targets claude
 uv-python-hook doctor
 uv-python-hook detect-project
 uv-python-hook rewrite-command "pip install -r requirements.txt"

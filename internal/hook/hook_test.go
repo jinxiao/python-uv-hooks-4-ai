@@ -245,12 +245,15 @@ func TestDetectIncompleteProjectSection(t *testing.T) {
 
 func TestProjectInstallGeneratesOnlyHookFiles(t *testing.T) {
 	dir := t.TempDir()
-	out := newInstaller("project", dir).install([]string{"codex", "opencode"})
+	out := newInstaller("project", dir).install([]string{"codex", "claude", "opencode"})
 	if out["activation"] != "hook-only" {
 		t.Fatalf("activation = %#v", out["activation"])
 	}
 	if !fileExists(filepath.Join(dir, ".codex", "hooks.json")) {
 		t.Fatal("missing codex hooks")
+	}
+	if !fileExists(filepath.Join(dir, ".claude", "settings.json")) {
+		t.Fatal("missing claude settings")
 	}
 	if !fileExists(filepath.Join(dir, ".opencode", "plugins", "uv-python-agent-hooks.js")) {
 		t.Fatal("missing opencode plugin")
@@ -298,6 +301,24 @@ func TestAutoInstallUsesDetectedCommands(t *testing.T) {
 	}
 }
 
+func TestAutoInstallUsesDetectedClaudeCommand(t *testing.T) {
+	withCommandAvailable(t, func(name string) bool {
+		return name == "claude"
+	})
+	dir := t.TempDir()
+	out := newInstaller("project", dir).install(nil)
+
+	if out["target_selection"] != "auto" {
+		t.Fatalf("target_selection = %#v, want auto", out["target_selection"])
+	}
+	if !reflect.DeepEqual(out["selected_targets"], []string{"claude"}) {
+		t.Fatalf("selected_targets = %#v", out["selected_targets"])
+	}
+	if !fileExists(filepath.Join(dir, ".claude", "settings.json")) {
+		t.Fatal("missing claude settings")
+	}
+}
+
 func TestAutoInstallSkipsWhenNoTargetsDetected(t *testing.T) {
 	withCommandAvailable(t, func(string) bool {
 		return false
@@ -313,6 +334,9 @@ func TestAutoInstallSkipsWhenNoTargetsDetected(t *testing.T) {
 	}
 	if fileExists(filepath.Join(dir, ".codex", "hooks.json")) {
 		t.Fatal("codex hooks should not be installed")
+	}
+	if fileExists(filepath.Join(dir, ".claude", "settings.json")) {
+		t.Fatal("claude settings should not be installed")
 	}
 	if fileExists(filepath.Join(dir, ".opencode", "plugins", "uv-python-agent-hooks.js")) {
 		t.Fatal("opencode plugin should not be installed")
@@ -335,6 +359,82 @@ func TestProjectInstallIsIdempotentForCodex(t *testing.T) {
 	hooks := asMap(payload["hooks"])
 	if len(asSlice(hooks["PreToolUse"])) != 1 || len(asSlice(hooks["PermissionRequest"])) != 1 {
 		t.Fatalf("hooks not idempotent: %s", string(data))
+	}
+}
+
+func TestProjectInstallIsIdempotentForClaude(t *testing.T) {
+	dir := t.TempDir()
+	inst := newInstaller("project", dir)
+	inst.install([]string{"claude"})
+	inst.install([]string{"claude"})
+	data, err := os.ReadFile(filepath.Join(dir, ".claude", "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	hooks := asMap(payload["hooks"])
+	preToolUse := asSlice(hooks["PreToolUse"])
+	if len(preToolUse) != 1 {
+		t.Fatalf("hooks not idempotent: %s", string(data))
+	}
+	entry := asMap(preToolUse[0])
+	if entry["matcher"] != "Bash" {
+		t.Fatalf("matcher = %#v, want Bash", entry["matcher"])
+	}
+	handlers := asSlice(entry["hooks"])
+	if len(handlers) != 1 {
+		t.Fatalf("handlers = %#v, want one", handlers)
+	}
+	handler := asMap(handlers[0])
+	if handler["type"] != "command" || handler["command"] != claudeOwnedPretoolCommand {
+		t.Fatalf("unexpected claude hook handler: %#v", handler)
+	}
+}
+
+func TestProjectInstallClaudeLeavesUnownedPretoolHookAlone(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".claude", "settings.json")
+	ensureParent(path)
+	writeFile(t, path, `{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv-python-hook claude-pretool"
+          }
+        ]
+      }
+    ]
+  }
+}`)
+
+	out := newInstaller("project", dir).install([]string{"claude"})
+	targets := asMap(out["targets"])
+	claude := asMap(targets["claude"])
+	if claude["changed"] != false {
+		t.Fatalf("changed = %#v, want false", claude["changed"])
+	}
+	warnings := claude["warnings"].([]string)
+	if len(warnings) != 1 {
+		t.Fatalf("warnings = %#v, want one warning", warnings)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if strings.Contains(text, claudeOwnedPretoolCommand) {
+		t.Fatalf("owned hook should not be added when unowned hook exists: %s", text)
+	}
+	if strings.Count(text, claudeBarePretoolCommand) != 1 {
+		t.Fatalf("unowned hook should be preserved without duplication: %s", text)
 	}
 }
 
@@ -428,6 +528,188 @@ func TestProjectUninstallCodexIsNoopWhenManagedHookMissing(t *testing.T) {
 	}
 }
 
+func TestProjectUninstallRemovesOnlyManagedClaudeHooks(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".claude", "settings.json")
+	ensureParent(path)
+	writeFile(t, path, `{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "existing-pretool"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "existing-posttool"
+          }
+        ]
+      }
+    ]
+  }
+}`)
+
+	inst := newInstaller("project", dir)
+	inst.install([]string{"claude"})
+	out := inst.uninstall([]string{"claude"})
+	targets := asMap(out["targets"])
+	claude := asMap(targets["claude"])
+	if claude["changed"] != true || claude["removed_hooks"] != 1 {
+		t.Fatalf("unexpected uninstall result: %#v", claude)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if strings.Contains(text, "uv-python-hook claude-pretool") {
+		t.Fatalf("managed hook was not removed: %s", text)
+	}
+	if !strings.Contains(text, "existing-pretool") || !strings.Contains(text, "existing-posttool") {
+		t.Fatalf("existing hooks were not preserved: %s", text)
+	}
+}
+
+func TestProjectUninstallClaudeIsNoopWhenManagedHookMissing(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".claude", "settings.json")
+	ensureParent(path)
+	original := `{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "existing-pretool"
+          }
+        ]
+      }
+    ]
+  }
+}
+`
+	writeFile(t, path, original)
+
+	out := newInstaller("project", dir).uninstall([]string{"claude"})
+	targets := asMap(out["targets"])
+	claude := asMap(targets["claude"])
+	if claude["changed"] != false || claude["removed_hooks"] != 0 {
+		t.Fatalf("unexpected uninstall result: %#v", claude)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != original {
+		t.Fatalf("uninstall changed unrelated hooks:\n%s", string(data))
+	}
+}
+
+func TestProjectUninstallClaudePreservesCoLocatedHooks(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".claude", "settings.json")
+	ensureParent(path)
+	writeFile(t, path, `{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "existing-pretool"
+          },
+          {
+            "type": "command",
+            "command": "uv-python-hook claude-pretool # uv-python-hook-owned",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}`)
+
+	out := newInstaller("project", dir).uninstall([]string{"claude"})
+	targets := asMap(out["targets"])
+	claude := asMap(targets["claude"])
+	if claude["changed"] != true || claude["removed_hooks"] != 1 {
+		t.Fatalf("unexpected uninstall result: %#v", claude)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	preToolUse := asSlice(asMap(payload["hooks"])["PreToolUse"])
+	if len(preToolUse) != 1 {
+		t.Fatalf("pretool entries = %#v, want one preserved entry", preToolUse)
+	}
+	entry := asMap(preToolUse[0])
+	entryHooks := asSlice(entry["hooks"])
+	if len(entryHooks) != 1 {
+		t.Fatalf("entry hooks = %#v, want only user hook preserved", entryHooks)
+	}
+	hook := asMap(entryHooks[0])
+	if hook["command"] != "existing-pretool" {
+		t.Fatalf("unexpected preserved hook: %#v", hook)
+	}
+}
+
+func TestProjectUninstallClaudeLeavesUnownedPretoolHookAlone(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".claude", "settings.json")
+	ensureParent(path)
+	original := `{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv-python-hook claude-pretool"
+          }
+        ]
+      }
+    ]
+  }
+}
+`
+	writeFile(t, path, original)
+
+	out := newInstaller("project", dir).uninstall([]string{"claude"})
+	targets := asMap(out["targets"])
+	claude := asMap(targets["claude"])
+	if claude["changed"] != false || claude["removed_hooks"] != 0 {
+		t.Fatalf("unexpected uninstall result: %#v", claude)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != original {
+		t.Fatalf("uninstall changed unowned hook:\n%s", string(data))
+	}
+}
+
 func TestProjectUninstallRemovesOpenCodePlugin(t *testing.T) {
 	dir := t.TempDir()
 	inst := newInstaller("project", dir)
@@ -454,13 +736,13 @@ func TestAutoUninstallRemovesExistingHooksEvenWhenCommandsAreMissing(t *testing.
 	})
 	dir := t.TempDir()
 	inst := newInstaller("project", dir)
-	inst.install([]string{"codex", "opencode"})
+	inst.install([]string{"codex", "claude", "opencode"})
 
 	out := inst.uninstall(nil)
 	if out["target_selection"] != "auto" {
 		t.Fatalf("target_selection = %#v, want auto", out["target_selection"])
 	}
-	if !reflect.DeepEqual(out["selected_targets"], []string{"codex", "opencode"}) {
+	if !reflect.DeepEqual(out["selected_targets"], []string{"codex", "claude", "opencode"}) {
 		t.Fatalf("selected_targets = %#v", out["selected_targets"])
 	}
 	if fileExists(filepath.Join(dir, ".opencode", "plugins", "uv-python-agent-hooks.js")) {
@@ -472,6 +754,13 @@ func TestAutoUninstallRemovesExistingHooksEvenWhenCommandsAreMissing(t *testing.
 	}
 	if strings.Contains(string(data), "uv-python-hook codex-pretool") {
 		t.Fatalf("managed codex hook was not removed: %s", string(data))
+	}
+	data, err = os.ReadFile(filepath.Join(dir, ".claude", "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "uv-python-hook claude-pretool") {
+		t.Fatalf("managed claude hook was not removed: %s", string(data))
 	}
 }
 
@@ -501,6 +790,51 @@ func TestCodexPretoolPayloadShape(t *testing.T) {
 	}
 	if !strings.Contains(b.String(), `"permissionDecision": "deny"`) {
 		t.Fatalf("unexpected output: %s", b.String())
+	}
+}
+
+func TestClaudePretoolPayloadShape(t *testing.T) {
+	code, output := runPretoolWithPayload(t, claudePretool, map[string]any{
+		"tool_name":  "Bash",
+		"tool_input": map[string]any{"command": "python app.py"},
+	})
+	if code != 0 {
+		t.Fatalf("code = %d", code)
+	}
+	if !strings.Contains(output, `"permissionDecision": "deny"`) {
+		t.Fatalf("unexpected output: %s", output)
+	}
+	if !strings.Contains(output, "uv --cache-dir") || !strings.Contains(output, "run app.py") {
+		t.Fatalf("output did not suggest uv rewrite: %s", output)
+	}
+}
+
+func TestClaudePretoolPipInstallPayloadShape(t *testing.T) {
+	code, output := runPretoolWithPayload(t, claudePretool, map[string]any{
+		"tool_name":  "Bash",
+		"tool_input": map[string]any{"command": "pip install requests"},
+	})
+	if code != 0 {
+		t.Fatalf("code = %d", code)
+	}
+	if !strings.Contains(output, `"permissionDecision": "deny"`) {
+		t.Fatalf("unexpected output: %s", output)
+	}
+	if !strings.Contains(output, "uv --cache-dir") || !strings.Contains(output, "pip install requests") {
+		t.Fatalf("output did not suggest uv pip rewrite: %s", output)
+	}
+}
+
+func TestClaudePretoolLeavesUnrelatedCommandSilent(t *testing.T) {
+	code, output := runPretoolWithPayload(t, claudePretool, map[string]any{
+		"tool_name":  "Bash",
+		"tool_input": map[string]any{"command": "echo hello"},
+	})
+	if code != 0 {
+		t.Fatalf("code = %d", code)
+	}
+	if output != "" {
+		t.Fatalf("output = %q, want empty", output)
 	}
 }
 
@@ -534,4 +868,25 @@ func withCommandAvailable(t *testing.T, available func(string) bool) {
 	t.Cleanup(func() {
 		commandAvailable = original
 	})
+}
+
+func runPretoolWithPayload(t *testing.T, run func(string) int, payload map[string]any) (int, string) {
+	t.Helper()
+	encoded, _ := json.Marshal(payload)
+	oldStdin := os.Stdin
+	r, w, _ := os.Pipe()
+	_, _ = w.Write(encoded)
+	_ = w.Close()
+	os.Stdin = r
+	defer func() { os.Stdin = oldStdin }()
+
+	var b strings.Builder
+	oldStdout := os.Stdout
+	readOut, writeOut, _ := os.Pipe()
+	os.Stdout = writeOut
+	code := run("")
+	_ = writeOut.Close()
+	os.Stdout = oldStdout
+	_, _ = io.Copy(&b, readOut)
+	return code, b.String()
 }
