@@ -5,6 +5,11 @@ on:
     branches:
       - main
       - dev
+    paths:
+      - cmd/**/*.go
+      - internal/**/*.go
+      - go.mod
+      - go.sum
   workflow_dispatch:
 
 permissions:

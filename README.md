@@ -7,24 +7,25 @@ agents toward `uv`.
 
 Tested:
 
-- Windows + Codex CLI.
-- Linux binary installer smoke test.
+- Codex CLI.
+- OpenCode.
 
-Implemented but not yet verified:
+Planned:
 
-- OpenCode hook installation and command rewriting.
-- macOS installer behavior.
-- macOS and Linux Codex/OpenCode agent behavior.
+- Claude Code.
+- VS Code Copilot.
 
-This repository should be treated as tested only for the Windows + Codex CLI
-path and the Linux binary installer path until the other targets are validated.
+This repository should be treated as validated for the Codex CLI and OpenCode
+tool targets. Claude Code, VS Code Copilot, and other agent/editor targets are
+planned but not yet supported.
 
 ## Prerequisites
 
 Install these tools and make sure they are available on `PATH`:
 
 - `uv`.
-- `codex` for the tested Codex CLI path.
+- `codex` for Codex CLI hooks.
+- `opencode` for OpenCode hooks.
 
 Go 1.22 or newer is only required when building from source.
 
@@ -43,13 +44,7 @@ The rewrite rules intentionally follow uv project boundaries:
 
 Install the latest stable GitHub release into a user-level binary directory.
 
-Linux:
-
-```sh
-curl -LsSf https://uv-python-hook.jinxiao2010.uk/install.sh | sh
-```
-
-macOS:
+macOS & Linux:
 
 ```sh
 curl -LsSf https://uv-python-hook.jinxiao2010.uk/install.sh | sh
@@ -68,15 +63,12 @@ configure detected Codex/OpenCode hooks.
 
 Default install locations:
 
-- Linux: `$HOME/.local/bin/uv-python-hook`
-- macOS: `$HOME/.local/bin/uv-python-hook`
+- macOS & Linux: `$HOME/.local/bin/uv-python-hook`
 - Windows: `$HOME\.local\bin\uv-python-hook.exe`
 
 The installer also tries to make the command available on `PATH`:
 
-- macOS: appends a small `uv-python-hook` block to the detected shell profile
-  (`~/.zshrc`, `~/.bashrc`, or `~/.config/fish/config.fish`).
-- Linux: appends a small `uv-python-hook` block to the detected shell profile
+- macOS & Linux: appends a small `uv-python-hook` block to the detected shell profile
   (`~/.zshrc`, `~/.bashrc`, or `~/.config/fish/config.fish`).
 - Windows: appends the install directory to the user `Path` environment
   variable.
@@ -116,6 +108,13 @@ across machines without requiring a matching system C runtime. It is not
 strictly required for local development, but it is the recommended default for
 published binaries. If future dependencies require CGO, remove this setting.
 
+macOS & Linux:
+
+```sh
+mkdir -p ./bin
+CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags="-s -w" -o ./bin/uv-python-hook ./cmd/uv-python-hook
+```
+
 Windows PowerShell:
 
 ```powershell
@@ -124,11 +123,14 @@ $env:CGO_ENABLED = "0"
 go build -buildvcs=false -trimpath -ldflags="-s -w" -o .\bin\uv-python-hook.exe .\cmd\uv-python-hook
 ```
 
-Linux or macOS:
+Common cross-compile targets from macOS & Linux shells:
 
 ```sh
 mkdir -p ./bin
-CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags="-s -w" -o ./bin/uv-python-hook ./cmd/uv-python-hook
+CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -buildvcs=false -trimpath -ldflags="-s -w" -o ./bin/uv-python-hook-darwin-amd64 ./cmd/uv-python-hook
+CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -buildvcs=false -trimpath -ldflags="-s -w" -o ./bin/uv-python-hook-darwin-arm64 ./cmd/uv-python-hook
+CGO_ENABLED=0 GOOS=linux  GOARCH=amd64 go build -buildvcs=false -trimpath -ldflags="-s -w" -o ./bin/uv-python-hook-linux-amd64  ./cmd/uv-python-hook
+CGO_ENABLED=0 GOOS=linux  GOARCH=arm64 go build -buildvcs=false -trimpath -ldflags="-s -w" -o ./bin/uv-python-hook-linux-arm64  ./cmd/uv-python-hook
 ```
 
 Common cross-compile targets from PowerShell:
@@ -137,32 +139,28 @@ Common cross-compile targets from PowerShell:
 New-Item -ItemType Directory -Force .\bin | Out-Null
 $env:CGO_ENABLED = "0"
 
-$env:GOOS = "linux";  $env:GOARCH = "amd64"
-go build -buildvcs=false -trimpath -ldflags="-s -w" -o .\bin\uv-python-hook-linux-amd64 .\cmd\uv-python-hook
-
-$env:GOOS = "linux";  $env:GOARCH = "arm64"
-go build -buildvcs=false -trimpath -ldflags="-s -w" -o .\bin\uv-python-hook-linux-arm64 .\cmd\uv-python-hook
-
 $env:GOOS = "darwin"; $env:GOARCH = "amd64"
 go build -buildvcs=false -trimpath -ldflags="-s -w" -o .\bin\uv-python-hook-darwin-amd64 .\cmd\uv-python-hook
 
 $env:GOOS = "darwin"; $env:GOARCH = "arm64"
 go build -buildvcs=false -trimpath -ldflags="-s -w" -o .\bin\uv-python-hook-darwin-arm64 .\cmd\uv-python-hook
 
+$env:GOOS = "linux";  $env:GOARCH = "amd64"
+go build -buildvcs=false -trimpath -ldflags="-s -w" -o .\bin\uv-python-hook-linux-amd64 .\cmd\uv-python-hook
+
+$env:GOOS = "linux";  $env:GOARCH = "arm64"
+go build -buildvcs=false -trimpath -ldflags="-s -w" -o .\bin\uv-python-hook-linux-arm64 .\cmd\uv-python-hook
+
 Remove-Item Env:\GOOS, Env:\GOARCH
 ```
 
-Common cross-compile targets from Linux or macOS shells:
+To install the command into your Go binary directory instead:
 
 ```sh
-mkdir -p ./bin
-CGO_ENABLED=0 GOOS=linux  GOARCH=amd64 go build -buildvcs=false -trimpath -ldflags="-s -w" -o ./bin/uv-python-hook-linux-amd64  ./cmd/uv-python-hook
-CGO_ENABLED=0 GOOS=linux  GOARCH=arm64 go build -buildvcs=false -trimpath -ldflags="-s -w" -o ./bin/uv-python-hook-linux-arm64  ./cmd/uv-python-hook
-CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -buildvcs=false -trimpath -ldflags="-s -w" -o ./bin/uv-python-hook-darwin-amd64 ./cmd/uv-python-hook
-CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -buildvcs=false -trimpath -ldflags="-s -w" -o ./bin/uv-python-hook-darwin-arm64 ./cmd/uv-python-hook
+CGO_ENABLED=0 go install -buildvcs=false ./cmd/uv-python-hook
 ```
 
-To install the command into your Go binary directory instead:
+Windows PowerShell:
 
 ```powershell
 $env:CGO_ENABLED = "0"
@@ -174,13 +172,19 @@ the directory as unsafe or unavailable.
 
 After building or installing, confirm the command is reachable:
 
-```powershell
+```sh
 uv-python-hook doctor
 uv-python-hook --version
 ```
 
-If you built into `.\bin`, either add that directory to `PATH` or run the binary
+If you built into `./bin`, either add that directory to `PATH` or run the binary
 by path:
+
+```sh
+./bin/uv-python-hook doctor
+```
+
+Windows PowerShell:
 
 ```powershell
 .\bin\uv-python-hook.exe doctor
@@ -199,11 +203,11 @@ Releases are automated with GoReleaser and GitHub Actions.
   - `fix:` and other changes increment patch.
   - `BREAKING CHANGE:` or a `!` marker, such as `feat!:` increments major.
 
-GoReleaser builds Linux, Windows, and macOS binaries for `amd64` and `arm64`.
+GoReleaser builds macOS, Linux, and Windows binaries for `amd64` and `arm64`.
 It also uploads `install.sh` and `install.ps1` as release assets. The release
 build injects the release version into the binary, so:
 
-```powershell
+```sh
 uv-python-hook --version
 ```
 
@@ -213,7 +217,7 @@ prints the released version and build metadata.
 
 Run the full Go test suite:
 
-```powershell
+```sh
 go test ./...
 ```
 
@@ -228,6 +232,12 @@ sh scripts/test-install-sh.sh
 If your Go cache is not writable in the current environment, point it to a local
 cache directory:
 
+```sh
+GOCACHE="$PWD/.tmp-go-cache" go test ./...
+```
+
+Windows PowerShell:
+
 ```powershell
 $env:GOCACHE = "$PWD\.tmp-go-cache"
 go test ./...
@@ -235,7 +245,7 @@ go test ./...
 
 You can also test a rewrite without installing hooks:
 
-```powershell
+```sh
 uv-python-hook rewrite-command "python app.py"
 uv-python-hook rewrite-command --target opencode "python app.py"
 uv-python-hook rewrite-command "pip install -r requirements.txt"
@@ -248,7 +258,7 @@ By default, `install` uses user scope and auto-detects installed targets. It
 installs the Codex hook only when `codex` is found on `PATH`, and installs the
 OpenCode plugin only when `opencode` is found on `PATH`:
 
-```powershell
+```sh
 uv-python-hook install
 ```
 
@@ -257,27 +267,27 @@ binary unless `UV_PYTHON_HOOK_NO_INSTALL_HOOKS=1` is set.
 
 To force a specific target for the current user:
 
-```powershell
+```sh
 uv-python-hook install --user --targets codex
 ```
 
 For a project-local install, run this inside the target repository and specify
 `--project`:
 
-```powershell
+```sh
 uv-python-hook install --project --targets codex
 ```
 
 User installs write Codex hook entries to:
 
 ```text
-%USERPROFILE%\.codex\hooks.json
+$HOME/.codex/hooks.json
 ```
 
 Project installs write Codex hook entries to:
 
 ```text
-.\.codex\hooks.json
+./.codex/hooks.json
 ```
 
 The Codex hook runs before shell tool execution. When it sees a Python-related
@@ -287,25 +297,25 @@ tools use `uv tool run` instead of the `uvx` shorthand.
 
 Examples:
 
-- `python app.py` -> `uv --cache-dir <temp>\uv-python-agent-hooks\uv-cache run app.py`
-- `py app.py` -> `uv --cache-dir <temp>\uv-python-agent-hooks\uv-cache run app.py`
-- `pytest -q` inside a uv project -> `uv --cache-dir <temp>\uv-python-agent-hooks\uv-cache run pytest -q`
-- `pytest -q` outside a project -> `uv --cache-dir <temp>\uv-python-agent-hooks\uv-cache tool run pytest -q`
-- `pip install requests` -> `uv --cache-dir <temp>\uv-python-agent-hooks\uv-cache pip install requests`
-- `python -m pip install requests` -> `uv --cache-dir <temp>\uv-python-agent-hooks\uv-cache pip install requests`
-- `python -m venv` -> `uv --cache-dir <temp>\uv-python-agent-hooks\uv-cache venv .venv`
-- `python -m venv venv` -> `uv --cache-dir <temp>\uv-python-agent-hooks\uv-cache venv venv`
+- `python app.py` -> `uv --cache-dir <temp>/uv-python-agent-hooks/uv-cache run app.py`
+- `py app.py` -> `uv --cache-dir <temp>/uv-python-agent-hooks/uv-cache run app.py`
+- `pytest -q` inside a uv project -> `uv --cache-dir <temp>/uv-python-agent-hooks/uv-cache run pytest -q`
+- `pytest -q` outside a project -> `uv --cache-dir <temp>/uv-python-agent-hooks/uv-cache tool run pytest -q`
+- `pip install requests` -> `uv --cache-dir <temp>/uv-python-agent-hooks/uv-cache pip install requests`
+- `python -m pip install requests` -> `uv --cache-dir <temp>/uv-python-agent-hooks/uv-cache pip install requests`
+- `python -m venv` -> `uv --cache-dir <temp>/uv-python-agent-hooks/uv-cache venv .venv`
+- `python -m venv venv` -> `uv --cache-dir <temp>/uv-python-agent-hooks/uv-cache venv venv`
 
 For requirements installs, the hook checks the nearest `pyproject.toml` or
 `uv.lock`:
 
-- If the project has uv-syncable dependency metadata, `pip install -r requirements.txt` becomes `uv --cache-dir <temp>\uv-python-agent-hooks\uv-cache sync`.
-- If `[project]` metadata is incomplete, it falls back to `uv --cache-dir <temp>\uv-python-agent-hooks\uv-cache pip install -r requirements.txt`.
+- If the project has uv-syncable dependency metadata, `pip install -r requirements.txt` becomes `uv --cache-dir <temp>/uv-python-agent-hooks/uv-cache sync`.
+- If `[project]` metadata is incomplete, it falls back to `uv --cache-dir <temp>/uv-python-agent-hooks/uv-cache pip install -r requirements.txt`.
 - If the project is managed by Poetry or PDM, the command is left unchanged.
 
 Run `doctor` after installation to inspect tool availability and hook paths:
 
-```powershell
+```sh
 uv-python-hook doctor
 ```
 
@@ -313,19 +323,19 @@ By default, `uninstall` also uses user scope and auto-detects targets. It
 removes existing hook files even if the corresponding command is no longer on
 `PATH`:
 
-```powershell
+```sh
 uv-python-hook uninstall
 ```
 
 To force a specific target:
 
-```powershell
+```sh
 uv-python-hook uninstall --user --targets codex
 ```
 
 For a project-local install:
 
-```powershell
+```sh
 uv-python-hook uninstall --project --targets codex
 ```
 
@@ -333,7 +343,7 @@ uv-python-hook uninstall --project --targets codex
 
 Install the OpenCode plugin explicitly:
 
-```powershell
+```sh
 uv-python-hook install --user --targets opencode
 ```
 
@@ -344,7 +354,7 @@ installing shell.
 For sandboxed OpenCode environments, prefer a project-local install so the
 plugin is available from the working directory:
 
-```powershell
+```sh
 uv-python-hook install --project --targets opencode
 ```
 
@@ -365,22 +375,22 @@ used by Codex.
 Codex hooks force `UV_CACHE_DIR` to a dedicated temporary cache by default:
 
 ```text
-%TEMP%\uv-python-agent-hooks\uv-cache
+/tmp/uv-python-agent-hooks/uv-cache
 ```
 
 OpenCode hooks leave `uv` cache behavior unchanged by default. Control this
 with:
 
-```powershell
-$env:UV_PYTHON_AGENT_HOOKS_CACHE_MODE = "auto" # codex on, opencode off
-$env:UV_PYTHON_AGENT_HOOKS_CACHE_MODE = "on"   # force temp cache
-$env:UV_PYTHON_AGENT_HOOKS_CACHE_MODE = "off"  # never force temp cache
+```sh
+export UV_PYTHON_AGENT_HOOKS_CACHE_MODE=auto # codex on, opencode off
+export UV_PYTHON_AGENT_HOOKS_CACHE_MODE=on   # force temp cache
+export UV_PYTHON_AGENT_HOOKS_CACHE_MODE=off  # never force temp cache
 ```
 
 Override it with:
 
-```powershell
-$env:UV_PYTHON_AGENT_HOOKS_CACHE_DIR = "D:\path\to\uv-cache"
+```sh
+export UV_PYTHON_AGENT_HOOKS_CACHE_DIR="/path/to/uv-cache"
 ```
 
 ## Virtual Environment Directory
@@ -395,8 +405,8 @@ python -m venv venv -> uv venv venv
 Set `UV_PYTHON_AGENT_HOOKS_FORCE_DOT_VENV=on` to force the venv target path to
 `.venv` even when the original command names another path:
 
-```powershell
-$env:UV_PYTHON_AGENT_HOOKS_FORCE_DOT_VENV = "on"
+```sh
+export UV_PYTHON_AGENT_HOOKS_FORCE_DOT_VENV=on
 ```
 
 With the switch enabled:
@@ -409,7 +419,7 @@ virtualenv env                       -> uv venv .venv
 
 ## Commands
 
-```powershell
+```sh
 uv-python-hook install
 uv-python-hook uninstall
 uv-python-hook install --project --targets codex
